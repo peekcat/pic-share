@@ -1,16 +1,22 @@
 import os
 import shutil
+import secrets
+from functools import wraps
 from pathlib import Path
 
-from flask import Flask, send_file, render_template_string, request, abort, url_for, jsonify
+from flask import (Flask, send_file, render_template_string, request, abort,
+                   url_for, jsonify, session, redirect, g)
 
 from ..config import state
 from ..paths import safe_join
 from ..preview import generator
 from ..status import update_global_status
-from .templates import ALBUM_TEMPLATE, HOME_TEMPLATE
+from .. import tokens
+from .templates import ALBUM_TEMPLATE, LANDING_TEMPLATE, PASSCODE_TEMPLATE
 
 app = Flask(__name__)
+# 会话密钥用于「口令已解锁」状态；进程级随机，重启后客户需重新输入口令
+app.secret_key = secrets.token_hex(32)
 
 
 @app.after_request
@@ -33,31 +39,60 @@ def _is_system_path(resolved: Path) -> bool:
     return any(part in forbidden for part in rel.parts)
 
 
-# ====== 3. Flask 路由 (不变) ======
+def _is_unlocked(token: str) -> bool:
+    return token in session.get('unlocked', [])
+
+
+def require_token(passcode_mode: str = 'deny'):
+    """校验 URL 中的 token，并把相册注入 ``g.album``。
+
+    passcode_mode='redirect' 时（相册页），需口令但未解锁则展示口令输入页；
+    passcode_mode='deny' 时（文件/API 路由），未解锁直接 403。
+    无效 / 过期 token 一律 404。
+    """
+    def decorator(view):
+        @wraps(view)
+        def wrapper(token, *args, **kwargs):
+            meta = tokens.resolve(token)
+            if not meta:
+                abort(404)
+            if meta.get('passcode_hash') and not _is_unlocked(token):
+                if passcode_mode == 'redirect':
+                    return render_template_string(PASSCODE_TEMPLATE, token=token, error=False)
+                abort(403)
+            g.album = meta['album']
+            g.meta = meta
+            return view(token, *args, **kwargs)
+        return wrapper
+    return decorator
+
+
+# ====== 3. Flask 路由 ======
 @app.route('/')
-def home(): return render_template_string(HOME_TEMPLATE)
+def home():
+    # 中性落地页：不提供相册名输入，避免枚举
+    return render_template_string(LANDING_TEMPLATE)
 
 
-@app.route('/check_album')
-def check_album():
-    name = request.args.get('name', '').strip()
-    if name == state.marked_subdir: return "禁止访问", 403
-    return render_template_string("<script>window.location.href='/album/'+encodeURIComponent('{{n}}')</script>", n=name)
+@app.route('/a/<token>/unlock', methods=['POST'])
+def unlock(token):
+    if not tokens.resolve(token):
+        abort(404)
+    if tokens.verify_passcode(token, request.form.get('passcode', '')):
+        unlocked = session.get('unlocked', [])
+        if token not in unlocked:
+            session['unlocked'] = unlocked + [token]
+        return redirect(url_for('album_view', token=token))
+    return render_template_string(PASSCODE_TEMPLATE, token=token, error=True)
 
 
-@app.route('/album/<path:album_name>')
-def album_view(album_name):
-    # 🔒 禁止访问特殊系统文件夹
-    if album_name == state.marked_subdir or album_name == state.preview_subdir:
-        return "⛔ 禁止访问系统缓存文件夹", 403
-
-    path = safe_join(state.base_dir, album_name)
-    if not path or not path.exists():
-        return "相册不存在", 404
-
-    # 额外检查：解析后的路径是否指向预览或标记目录
-    if _is_system_path(path):
-        return "⛔ 禁止访问系统文件夹", 403
+@app.route('/a/<token>')
+@require_token('redirect')
+def album_view(token):
+    album = g.album
+    path = safe_join(state.base_dir, album)
+    if not path or not path.exists() or _is_system_path(path):
+        abort(404)
 
     photos = []
     for f in path.rglob("*"):
@@ -67,25 +102,22 @@ def album_view(album_name):
                 continue
             try:
                 rel = f.relative_to(path).as_posix()
-
-                # [新增] 判断是否为 RAW 文件
-                is_raw_file = f.suffix.lower() in state.raw_extensions
-
                 photos.append({
                     'filename': rel,
-                    'preview': url_for('get_preview', album=album_name, filename=rel),
-                    'original': url_for('get_original', album=album_name, filename=rel),
-                    'is_raw': is_raw_file  # 将此标记传递给前端
+                    'preview': url_for('get_preview', token=token, filename=rel),
+                    'original': url_for('get_original', token=token, filename=rel),
+                    'is_raw': f.suffix.lower() in state.raw_extensions,
                 })
-            except:
+            except Exception:
                 continue
-    return render_template_string(ALBUM_TEMPLATE, album_name=album_name, photos=photos)
+    title = g.meta.get('label') or album
+    return render_template_string(ALBUM_TEMPLATE, album_name=title, token=token, photos=photos)
 
 
-@app.route('/file/preview/<path:album>/<path:filename>')
-@app.route('/file/preview/<path:album>/<path:filename>')
-def get_preview(album, filename):
-    # 原始文件的完整路径 (state.base_dir / album / filename)
+@app.route('/a/<token>/p/<path:filename>')
+@require_token('deny')
+def get_preview(token, filename):
+    album = g.album
     original_path = safe_join(state.base_dir, album, filename)
     if not original_path:
         abort(404)
@@ -93,35 +125,28 @@ def get_preview(album, filename):
     # 🔒 禁止借预览路由窥探系统目录(标记 / 预览缓存)
     if _is_system_path(original_path):
         abort(403)
-
     if not original_path.exists():
         abort(404)
 
-    # 计算预览文件的完整路径
-    # 预览路径 = 根目录 / 预览子目录 / album / filename
-    # 注意：Path(state.base_dir) / state.preview_subdir 是预览缓存的根目录
-    # album/filename 是相对于共享根目录的路径部分
     preview_path = safe_join(str(Path(state.base_dir) / state.preview_subdir), album, filename)
+    if not preview_path:
+        abort(404)
 
-    if not preview_path: abort(404)
-
-    # 检查预览文件是否存在
     if not preview_path.exists():
-        # 如果不存在，则生成它
         success = generator.generate_sync(original_path, preview_path)
         if not success:
             # 🔒 RAW 文件禁止下载原图：预览生成失败时不能降级返回原始 RAW
             if original_path.suffix.lower() in state.raw_extensions:
                 abort(404)
-            # 如果生成失败，直接返回原图，但不返回原图的 mime-type
-            # 这是一个简单的降级策略，虽然返回原图，但文件路径仍是 /file/preview/...
             return send_file(original_path)
 
     return send_file(preview_path)
 
 
-@app.route('/file/original/<path:album>/<path:filename>')
-def get_original(album, filename):
+@app.route('/a/<token>/o/<path:filename>')
+@require_token('deny')
+def get_original(token, filename):
+    album = g.album
     path = safe_join(state.base_dir, album, filename)
     if not path:
         abort(404)
@@ -129,37 +154,44 @@ def get_original(album, filename):
     # 🔒 禁止直接访问系统目录(标记 / 预览缓存)
     if _is_system_path(path):
         abort(403)
-
     # 🔒 RAW 文件禁止查看 / 下载原图(与前端禁用按钮保持一致，防止直接构造 URL 绕过)
     if path.suffix.lower() in state.raw_extensions:
         abort(403)
-
     if not path.exists():
         abort(404)
     return send_file(path)
 
 
-@app.route('/api/check_mark')
-def check_mark():
-    p = safe_join(state.base_dir, state.marked_subdir, request.args.get('album'), request.args.get('filename'))
-    return jsonify({'is_marked': p and p.exists()})
+@app.route('/a/<token>/check_mark')
+@require_token('deny')
+def check_mark(token):
+    filename = request.args.get('filename', '')
+    p = safe_join(state.base_dir, state.marked_subdir, g.album, filename)
+    return jsonify({'is_marked': bool(p and p.exists())})
 
 
-@app.route('/api/toggle_mark', methods=['POST'])
-def toggle_mark():
-    d = request.json
-    src = safe_join(state.base_dir, d['album'], d['filename'])
-    dst = safe_join(state.base_dir, state.marked_subdir, d['album'], d['filename'])
-    if not src or not src.exists(): return jsonify({'success': False})
+@app.route('/a/<token>/mark', methods=['POST'])
+@require_token('deny')
+def toggle_mark(token):
+    album = g.album
+    data = request.get_json(silent=True) or {}
+    filename = data.get('filename')
+    if not filename:
+        return jsonify({'success': False}), 400
+
+    src = safe_join(state.base_dir, album, filename)
+    dst = safe_join(state.base_dir, state.marked_subdir, album, filename)
+    if not src or not dst or not src.exists():
+        return jsonify({'success': False})
     try:
         if dst.exists():
             os.remove(dst)
-            update_global_status(f"🗑️ 取消: {Path(d['filename']).name}")
+            update_global_status(f"🗑️ 取消: {Path(filename).name}")
             return jsonify({'success': True, 'is_marked': False})
         else:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
-            update_global_status(f"⭐ 标记: {Path(d['filename']).name}")
+            update_global_status(f"⭐ 标记: {Path(filename).name}")
             return jsonify({'success': True, 'is_marked': True})
-    except Exception as e:
+    except Exception:
         return jsonify({'success': False})

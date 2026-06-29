@@ -158,6 +158,7 @@ ALBUM_TEMPLATE = '''
     <script>
         const photos = {{ photos | tojson }};
         const albumName = "{{ album_name }}";
+        const token = "{{ token }}";
         let curIdx = 0;
         let isOrig = false;
 
@@ -224,7 +225,7 @@ ALBUM_TEMPLATE = '''
                 renderMark(markedState[currentFile]);
             } else {
                 renderMark(false);
-                fetch(`/api/check_mark?album=${encodeURIComponent(albumName)}&filename=${encodeURIComponent(currentFile)}`)
+                fetch(`/a/${token}/check_mark?filename=${encodeURIComponent(currentFile)}`)
                     .then(r=>r.json()).then(d => {
                         markedState[currentFile] = d.is_marked;
                         if(curIdx === photos.findIndex(p => p.filename === currentFile)) {
@@ -307,9 +308,9 @@ ALBUM_TEMPLATE = '''
             markedState[currentFile] = nextState;
             renderMark(nextState);
 
-            fetch('/api/toggle_mark', {
+            fetch(`/a/${token}/mark`, {
                 method:'POST', headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({album:albumName, filename:currentFile})
+                body:JSON.stringify({filename:currentFile})
             }).then(r=>r.json()).then(d => {
                 if(!d.success) {
                     markedState[currentFile] = !nextState;
@@ -333,7 +334,8 @@ ALBUM_TEMPLATE = '''
 </html>
 '''
 
-HOME_TEMPLATE = '''
+# 中性落地页：不暴露相册名输入，避免枚举
+LANDING_TEMPLATE = '''
 <!DOCTYPE html>
 <html>
 <head>
@@ -346,8 +348,36 @@ HOME_TEMPLATE = '''
     <div class="card-container">
         <div class="card">
             <h2>🔐 私有相册</h2>
-            <form action="/check_album">
-                <input name="name" placeholder="请输入相册文件夹名称" autocomplete="off" style="max-width: 280px;">
+            <p style="color:#aaa; font-size:15px; line-height:1.6; margin:10px 0 0;">
+                请使用您收到的<strong>专属访问链接</strong>进入相册。<br>
+                如无链接，请联系您的摄影师。
+            </p>
+        </div>
+    </div>
+</body>
+</html>
+'''
+
+# 口令输入页：访问设了口令的相册时弹出
+PASSCODE_TEMPLATE = '''
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>请输入访问口令</title>
+<style>''' + CSS_STYLE + '''</style>
+</head>
+<body>
+    <div class="card-container">
+        <div class="card">
+            <h2>🔑 访问口令</h2>
+            {% if error %}
+            <p style="color:#FF6B6B; font-size:14px; margin:10px 0 0;">口令错误，请重试。</p>
+            {% endif %}
+            <form action="/a/{{ token }}/unlock" method="post">
+                <input name="passcode" type="password" inputmode="numeric" placeholder="请输入访问口令"
+                       autocomplete="off" autofocus style="max-width: 280px;">
                 <button>进入相册</button>
             </form>
         </div>

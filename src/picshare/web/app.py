@@ -74,7 +74,7 @@ def home():
     return render_template_string(LANDING_TEMPLATE)
 
 
-@app.route('/a/<token>/unlock', methods=['POST'])
+@app.route('/share/<token>/unlock', methods=['POST'])
 def unlock(token):
     if not tokens.resolve(token):
         abort(404)
@@ -86,7 +86,7 @@ def unlock(token):
     return render_template_string(PASSCODE_TEMPLATE, token=token, error=True)
 
 
-@app.route('/a/<token>')
+@app.route('/share/<token>')
 @require_token('redirect')
 def album_view(token):
     album = g.album
@@ -114,7 +114,7 @@ def album_view(token):
     return render_template_string(ALBUM_TEMPLATE, album_name=title, token=token, photos=photos)
 
 
-@app.route('/a/<token>/p/<path:filename>')
+@app.route('/share/<token>/preview/<path:filename>')
 @require_token('deny')
 def get_preview(token, filename):
     album = g.album
@@ -143,7 +143,7 @@ def get_preview(token, filename):
     return send_file(preview_path)
 
 
-@app.route('/a/<token>/o/<path:filename>')
+@app.route('/share/<token>/original/<path:filename>')
 @require_token('deny')
 def get_original(token, filename):
     album = g.album
@@ -162,7 +162,7 @@ def get_original(token, filename):
     return send_file(path)
 
 
-@app.route('/a/<token>/check_mark')
+@app.route('/share/<token>/check_mark')
 @require_token('deny')
 def check_mark(token):
     filename = request.args.get('filename', '')
@@ -170,7 +170,7 @@ def check_mark(token):
     return jsonify({'is_marked': bool(p and p.exists())})
 
 
-@app.route('/a/<token>/mark', methods=['POST'])
+@app.route('/share/<token>/mark', methods=['POST'])
 @require_token('deny')
 def toggle_mark(token):
     album = g.album

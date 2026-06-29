@@ -225,7 +225,7 @@ ALBUM_TEMPLATE = '''
                 renderMark(markedState[currentFile]);
             } else {
                 renderMark(false);
-                fetch(`/a/${token}/check_mark?filename=${encodeURIComponent(currentFile)}`)
+                fetch(`/share/${token}/check_mark?filename=${encodeURIComponent(currentFile)}`)
                     .then(r=>r.json()).then(d => {
                         markedState[currentFile] = d.is_marked;
                         if(curIdx === photos.findIndex(p => p.filename === currentFile)) {
@@ -308,7 +308,7 @@ ALBUM_TEMPLATE = '''
             markedState[currentFile] = nextState;
             renderMark(nextState);
 
-            fetch(`/a/${token}/mark`, {
+            fetch(`/share/${token}/mark`, {
                 method:'POST', headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({filename:currentFile})
             }).then(r=>r.json()).then(d => {
@@ -375,7 +375,7 @@ PASSCODE_TEMPLATE = '''
             {% if error %}
             <p style="color:#FF6B6B; font-size:14px; margin:10px 0 0;">口令错误，请重试。</p>
             {% endif %}
-            <form action="/a/{{ token }}/unlock" method="post">
+            <form action="/share/{{ token }}/unlock" method="post">
                 <input name="passcode" type="password" inputmode="numeric" placeholder="请输入访问口令"
                        autocomplete="off" autofocus style="max-width: 280px;">
                 <button>进入相册</button>

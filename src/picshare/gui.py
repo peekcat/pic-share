@@ -281,7 +281,7 @@ class ServerGUI:
             days = days_map.get(expiry_var.get())
             passcode = pass_var.get().strip() or None
             tok = tokens.create_token(album, expires_days=days, passcode=passcode, label=album)
-            url = f"{self._base_url()}/a/{tok}"
+            url = f"{self._base_url()}/share/{tok}"
             self.root.clipboard_clear()
             self.root.clipboard_append(url)
             pass_var.set('')
@@ -296,7 +296,7 @@ class ServerGUI:
             tok = _selected_token()
             if not tok:
                 return
-            url = f"{self._base_url()}/a/{tok}"
+            url = f"{self._base_url()}/share/{tok}"
             self.root.clipboard_clear()
             self.root.clipboard_append(url)
             messagebox.showinfo("已复制", url, parent=win)

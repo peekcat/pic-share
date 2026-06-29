@@ -1,7 +1,7 @@
 """相册访问 token 存储与校验。
 
 能力 URL(Capability URL)模型：每个相册子文件夹绑定一个不可枚举的随机 token，
-客户凭 ``/a/<token>`` 访问，相册名由 token 在服务端推导，客户无法指定。
+客户凭 ``/share/<token>`` 访问，相册名由 token 在服务端推导，客户无法指定。
 
 token 存储在 ``<根目录>/._access_tokens.json``，由桌面端创建/撤销，
 Web 端只做只读校验。口令以哈希形式存储（werkzeug，零新依赖），绝不落明文。

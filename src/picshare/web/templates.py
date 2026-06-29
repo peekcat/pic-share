@@ -376,8 +376,9 @@ PASSCODE_TEMPLATE = '''
             <p style="color:#FF6B6B; font-size:14px; margin:10px 0 0;">口令错误，请重试。</p>
             {% endif %}
             <form action="/share/{{ token }}/unlock" method="post">
-                <input name="passcode" type="password" inputmode="numeric" placeholder="请输入访问口令"
-                       autocomplete="off" autofocus style="max-width: 280px;">
+                <input name="passcode" type="text" placeholder="请输入 4 位访问口令"
+                       autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+                       autofocus style="max-width: 280px;">
                 <button>进入相册</button>
             </form>
         </div>

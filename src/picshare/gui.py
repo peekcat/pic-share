@@ -239,10 +239,27 @@ class ServerGUI:
         ttk.Combobox(gen, textvariable=expiry_var, values=["3 天", "7 天", "14 天"],
                      state='readonly', width=30).grid(row=1, column=1, sticky='w', padx=8, pady=4)
 
-        tk.Label(gen, text="口令(可空)", bg=self.style['panel'], fg=self.style['fg']).grid(row=2, column=0, sticky='w', pady=4)
+        # 口令为可选项，默认关闭（token 已是强随机，多数场景一条链接即可）
+        use_pass_var = tk.BooleanVar(value=False)
         pass_var = tk.StringVar()
-        tk.Entry(gen, textvariable=pass_var, bg=self.style['input'], fg='white', relief='flat', width=32).grid(
-            row=2, column=1, sticky='w', padx=8, pady=4, ipady=3)
+        pass_entry = tk.Entry(gen, textvariable=pass_var, bg=self.style['input'], fg='white',
+                              relief='flat', width=32, disabledbackground=self.style['panel'])
+
+        def _toggle_pass():
+            if use_pass_var.get():
+                if not pass_var.get().strip():
+                    pass_var.set(tokens.generate_passcode())  # 勾选时自动给一个随机 4 位
+                pass_entry.config(state='normal')
+            else:
+                pass_var.set('')
+                pass_entry.config(state='disabled')
+
+        tk.Checkbutton(gen, text="加访问口令(可选)", variable=use_pass_var, command=_toggle_pass,
+                       bg=self.style['panel'], fg=self.style['fg'], selectcolor=self.style['input'],
+                       activebackground=self.style['panel'], activeforeground=self.style['fg'],
+                       highlightthickness=0, bd=0).grid(row=2, column=0, sticky='w', pady=4)
+        pass_entry.grid(row=2, column=1, sticky='w', padx=8, pady=4, ipady=3)
+        pass_entry.config(state='disabled')  # 默认关闭
 
         # --- 已生成 token 列表 ---
         list_frame = tk.Frame(win, bg=self.style['bg'])
@@ -252,9 +269,9 @@ class ServerGUI:
         tree.heading("album", text="相册")
         tree.heading("expires", text="有效期至")
         tree.heading("passcode", text="口令")
-        tree.column("album", width=260)
-        tree.column("expires", width=150)
-        tree.column("passcode", width=70, anchor='center')
+        tree.column("album", width=280)
+        tree.column("expires", width=140)
+        tree.column("passcode", width=90, anchor='center')
         tree.pack(side='left', fill='both', expand=True)
         sb = ttk.Scrollbar(list_frame, orient='vertical', command=tree.yview)
         sb.pack(side='right', fill='y')
@@ -268,7 +285,7 @@ class ServerGUI:
             for tok, meta in tokens.list_tokens():
                 exp = meta.get('expires')
                 exp_disp = exp[:10] if exp else "永久"
-                pc = "有" if meta.get('passcode_hash') else "无"
+                pc = meta.get('passcode') or "—"
                 item = tree.insert('', 'end', values=(meta.get('label') or meta.get('album'), exp_disp, pc))
                 token_by_item[item] = tok
 
@@ -279,18 +296,40 @@ class ServerGUI:
                 return
             days_map = {"3 天": 3, "7 天": 7, "14 天": 14}
             days = days_map.get(expiry_var.get(), 3)  # 默认 3 天
-            passcode = pass_var.get().strip() or None
+            # 仅在勾选「加访问口令」时设口令；默认 token-only，一条链接即可
+            passcode = (pass_var.get().strip() or tokens.generate_passcode()) if use_pass_var.get() else None
             tok = tokens.create_token(album, expires_days=days, passcode=passcode, label=album)
             url = f"{self._base_url()}/share/{tok}"
             self.root.clipboard_clear()
             self.root.clipboard_append(url)
+            # 复位口令控件
+            use_pass_var.set(False)
             pass_var.set('')
+            pass_entry.config(state='disabled')
             reload_tokens()
-            messagebox.showinfo("已生成并复制", f"专属链接已复制到剪贴板：\n\n{url}", parent=win)
+            if passcode:
+                messagebox.showinfo(
+                    "已生成 · 链接已复制",
+                    f"专属链接已复制到剪贴板：\n\n{url}\n\n访问口令：{passcode}\n\n"
+                    "请把链接与口令分别发给客户（口令需客户在网页手动输入）。\n"
+                    "可在下方列表用「复制链接 / 复制口令」按钮随时重新复制。",
+                    parent=win)
+            else:
+                messagebox.showinfo(
+                    "已生成 · 链接已复制",
+                    f"专属链接已复制到剪贴板：\n\n{url}\n\n"
+                    "凭此链接即可访问，把它发给客户即可。",
+                    parent=win)
 
-        def _selected_token():
+        def _selected_token(self_meta=False):
             sel = tree.selection()
-            return token_by_item.get(sel[0]) if sel else None
+            if not sel:
+                return (None, None) if self_meta else None
+            tok = token_by_item.get(sel[0])
+            if not self_meta:
+                return tok
+            meta = next((m for t, m in tokens.list_tokens() if t == tok), None)
+            return tok, meta
 
         def do_copy():
             tok = _selected_token()
@@ -299,7 +338,19 @@ class ServerGUI:
             url = f"{self._base_url()}/share/{tok}"
             self.root.clipboard_clear()
             self.root.clipboard_append(url)
-            messagebox.showinfo("已复制", url, parent=win)
+            messagebox.showinfo("已复制链接", url, parent=win)
+
+        def do_copy_pass():
+            tok, meta = _selected_token(self_meta=True)
+            if not tok:
+                return
+            pw = (meta or {}).get('passcode')
+            if not pw:
+                messagebox.showinfo("提示", "该链接未设口令。", parent=win)
+                return
+            self.root.clipboard_clear()
+            self.root.clipboard_append(pw)
+            messagebox.showinfo("已复制口令", f"访问口令：{pw}", parent=win)
 
         def do_revoke():
             tok = _selected_token()
@@ -315,7 +366,9 @@ class ServerGUI:
 
         ops = tk.Frame(win, bg=self.style['bg'])
         ops.pack(fill='x', padx=15, pady=(0, 15))
-        tk.Button(ops, text="复制选中链接", command=do_copy, bg=self.style['input'], fg='white',
+        tk.Button(ops, text="复制链接", command=do_copy, bg=self.style['input'], fg='white',
+                  relief='flat').pack(side='left', ipady=4, padx=(0, 8))
+        tk.Button(ops, text="复制口令", command=do_copy_pass, bg=self.style['input'], fg='white',
                   relief='flat').pack(side='left', ipady=4, padx=(0, 8))
         tk.Button(ops, text="撤销选中", command=do_revoke, bg='#7a2e2e', fg='white',
                   relief='flat').pack(side='left', ipady=4)

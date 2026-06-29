@@ -51,12 +51,17 @@ class TokenStoreTest(unittest.TestCase):
         store.write_text(json.dumps(data), encoding="utf-8")
         self.assertIsNone(tokens.resolve(t))  # 过期后视为无效
 
-    def test_passcode_hashed_not_plaintext(self):
-        t = tokens.create_token("album", passcode="1234")
-        store = Path(state.base_dir) / state.token_file
-        raw = store.read_text(encoding="utf-8")
-        self.assertNotIn("1234", raw)  # 明文绝不落盘
+    def test_passcode_stored_and_required(self):
+        t = tokens.create_token("album", passcode="aB3k")
         self.assertTrue(tokens.requires_passcode(t))
+        # 口令明文存储（其安全性来自「不嵌入分享链接」，而非磁盘哈希），便于随时重发
+        self.assertEqual(tokens.resolve(t)["passcode"], "aB3k")
+
+    def test_generate_passcode(self):
+        pc = tokens.generate_passcode()
+        self.assertEqual(len(pc), 4)
+        self.assertFalse(set(pc) & set("01IOlo"))  # 不含易混淆字符
+        self.assertEqual(len(tokens.generate_passcode(12)), 12)
 
     def test_passcode_verify(self):
         t = tokens.create_token("album", passcode="1234")

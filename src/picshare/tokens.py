@@ -13,12 +13,18 @@ import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from werkzeug.security import generate_password_hash, check_password_hash
-
 from .config import state
 
 # 同一进程内 GUI 线程(写)与 Flask 线程(读)共享存储，加锁保护
 _LOCK = threading.Lock()
+
+# 口令字符集：英文数字混合，剔除易混淆字符(0/1/I/O/l/o)，便于客户手动输入
+_PASSCODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz"
+
+
+def generate_passcode(length: int = 4) -> str:
+    """生成随机短口令(默认 4 位英文数字混合)。"""
+    return "".join(secrets.choice(_PASSCODE_ALPHABET) for _ in range(length))
 
 
 def _store_path() -> Path:
@@ -73,7 +79,8 @@ def create_token(album: str, *, expires_days: int | None = None,
     """为 ``album``(相对根目录的相册路径)创建访问 token，返回 token 字符串。
 
     expires_days: 有效天数，None 表示永久。
-    passcode:     可选短口令，None 表示无口令。
+    passcode:     可选短口令，None 表示无口令。明文存储以便随时重新复制重发；
+                  其安全性来自「不嵌入分享链接」，而非磁盘哈希。
     """
     token = secrets.token_urlsafe(24)
     expires = (_now() + timedelta(days=expires_days)).isoformat() if expires_days else None
@@ -82,7 +89,7 @@ def create_token(album: str, *, expires_days: int | None = None,
         "label": label or album,
         "created": _now().isoformat(),
         "expires": expires,
-        "passcode_hash": generate_password_hash(passcode) if passcode else None,
+        "passcode": passcode or None,
     }
     with _LOCK:
         data = _load()
@@ -123,7 +130,7 @@ def resolve(token: str):
 def requires_passcode(token: str) -> bool:
     """该 token 是否设置了口令。"""
     meta = resolve(token)
-    return bool(meta and meta.get("passcode_hash"))
+    return bool(meta and meta.get("passcode"))
 
 
 def verify_passcode(token: str, code: str) -> bool:
@@ -131,7 +138,7 @@ def verify_passcode(token: str, code: str) -> bool:
     meta = resolve(token)
     if not meta:
         return False
-    h = meta.get("passcode_hash")
-    if not h:
+    pw = meta.get("passcode")
+    if not pw:
         return True
-    return check_password_hash(h, code or "")
+    return secrets.compare_digest(pw, code or "")

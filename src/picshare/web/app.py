@@ -56,7 +56,7 @@ def require_token(passcode_mode: str = 'deny'):
             meta = tokens.resolve(token)
             if not meta:
                 abort(404)
-            if meta.get('passcode_hash') and not _is_unlocked(token):
+            if meta.get('passcode') and not _is_unlocked(token):
                 if passcode_mode == 'redirect':
                     return render_template_string(PASSCODE_TEMPLATE, token=token, error=False)
                 abort(403)

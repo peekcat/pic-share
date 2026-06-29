@@ -1,4 +1,5 @@
 import os
+import tempfile
 import subprocess
 import logging
 from pathlib import Path
@@ -10,6 +11,16 @@ from .config import state
 from .status import update_global_status
 
 logger = logging.getLogger(__name__)
+
+
+def _temp_path(final: Path) -> Path:
+    """在目标同目录下创建唯一临时文件，用于「先写后原子替换」。
+
+    同目录保证 os.replace 是同一文件系统内的原子 rename。
+    """
+    fd, name = tempfile.mkstemp(dir=str(final.parent), prefix=".tmp_", suffix=final.suffix or ".jpg")
+    os.close(fd)
+    return Path(name)
 
 
 class PreviewGenerator:
@@ -25,10 +36,13 @@ class PreviewGenerator:
         修复了参数传递问题，并增加了 Windows 下隐藏黑框的处理。
         """
         command = 'magick'
+        tmp = None
 
         try:
             # 1. 确保目标预览文件夹存在
             preview_path.parent.mkdir(parents=True, exist_ok=True)
+            # 先写临时文件，成功后再原子替换（避免半截文件 / 并发写冲突）
+            tmp = _temp_path(preview_path)
 
             # 2. 构造 Magick 命令
             # -auto-orient : 根据 EXIF 自动旋转图片 (RAW文件常需要这个)
@@ -40,7 +54,7 @@ class PreviewGenerator:
                 '-auto-orient',
                 '-thumbnail', f"{state.thumb_size[0]}x{state.thumb_size[1]}>",
                 '-quality', str(state.thumb_quality),
-                f"JPG:{str(preview_path)}"
+                f"JPG:{str(tmp)}"
             ]
 
             logger.info(f"⚡ 尝试用 Magick 生成: {original_path.name}")
@@ -68,8 +82,9 @@ class PreviewGenerator:
                     logger.error(f"   错误信息: {result.stderr.strip()}")
                 return False
 
-            # 5. 验证文件是否有效
-            if preview_path.exists() and preview_path.stat().st_size > 1024:
+            # 5. 验证临时文件有效后，原子替换为正式预览
+            if tmp.exists() and tmp.stat().st_size > 1024:
+                os.replace(tmp, preview_path)
                 logger.info(f"✅ Magick 成功: {original_path.name}")
                 return True
             else:
@@ -85,6 +100,13 @@ class PreviewGenerator:
         except Exception as e:
             logger.exception(f"Magick 运行时异常: {original_path.name} - {e}")
             return False
+        finally:
+            # 清理可能残留的临时文件（成功路径下已被 os.replace 移走）
+            if tmp is not None and tmp.exists():
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
 
     @staticmethod
     def extract_embedded_thumbnail(image_path: Path) -> Image.Image | None:
@@ -157,9 +179,16 @@ class PreviewGenerator:
             if img.mode != "RGB":
                 img = img.convert("RGB")
 
-            # 缩放并保存
+            # 缩放并原子保存：先写临时文件再 rename，避免半截文件 / 并发写冲突
             img.thumbnail(state.thumb_size, Image.Resampling.LANCZOS)
-            img.save(preview_path, "JPEG", quality=state.thumb_quality, optimize=True)
+            tmp = _temp_path(preview_path)
+            try:
+                img.save(tmp, "JPEG", quality=state.thumb_quality, optimize=True)
+                os.replace(tmp, preview_path)
+            except Exception:
+                if tmp.exists():
+                    tmp.unlink()
+                raise
             return True
 
         except Exception as e:

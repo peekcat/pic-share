@@ -8,6 +8,8 @@ class ServerState:
         self.base_dir = r"F:\共享照片"
         self.preview_subdir = "._preview_ipv6_opt"
         self.marked_subdir = "被标记的照片"
+        # 访问 token 存储文件（相对根目录），由桌面端管理、Web 端只读校验
+        self.token_file = "._access_tokens.json"
 
         # [修改] 提高分辨率到 640x640
         self.thumb_size = (640, 640)

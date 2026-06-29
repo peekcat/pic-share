@@ -8,6 +8,7 @@ dist/
 venv/
 .DS_Store
 
-# 运行时生成的缓存 / 标记目录
+# 运行时生成的缓存 / 标记目录 / 访问 token
 ._preview_ipv6_opt/
 被标记的照片/
+._access_tokens.json

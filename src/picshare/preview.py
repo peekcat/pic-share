@@ -1,4 +1,5 @@
 import os
+import time
 import tempfile
 import subprocess
 import logging
@@ -241,9 +242,10 @@ class PreviewGenerator:
             update_global_status("✅ 就绪: 所有图片已索引")
             return
 
-        # 等待后台生成真正完成，并上报进度（而不是停在"处理中"）
-        update_global_status(f"⚡ 预热中: 0/{total}")
+        # 等待后台生成真正完成。进度按时间节流上报：只有预热确实较慢
+        # （距上次播报超过 0.5s）才报中间进度，避免快速场景出现失真的 0/N。
         done = failed = 0
+        last_report = time.monotonic()
         for fut in as_completed(futures):
             done += 1
             try:
@@ -251,8 +253,10 @@ class PreviewGenerator:
                     failed += 1
             except Exception:
                 failed += 1
-            if done % 10 == 0:
+            now = time.monotonic()
+            if done < total and now - last_report >= 0.5:
                 update_global_status(f"⚡ 预热中: {done}/{total}")
+                last_report = now
 
         if failed:
             update_global_status(f"✅ 预热完成: {total} 张（{failed} 张失败）")

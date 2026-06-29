@@ -20,6 +20,19 @@ def add_header(response):
     return response
 
 
+def _is_system_path(resolved: Path) -> bool:
+    """判断解析后的路径是否落在系统目录(标记 / 预览缓存)内。
+
+    用于在文件路由层面拦截对 ``被标记的照片`` 与 ``._preview_ipv6_opt`` 的直接访问。
+    """
+    try:
+        rel = resolved.relative_to(Path(state.base_dir).resolve())
+    except ValueError:
+        return False
+    forbidden = (state.marked_subdir, state.preview_subdir)
+    return any(part in forbidden for part in rel.parts)
+
+
 # ====== 3. Flask 路由 (不变) ======
 @app.route('/')
 def home(): return render_template_string(HOME_TEMPLATE)
@@ -43,12 +56,8 @@ def album_view(album_name):
         return "相册不存在", 404
 
     # 额外检查：解析后的路径是否指向预览或标记目录
-    try:
-        rel_path = path.relative_to(Path(state.base_dir).resolve())
-        if rel_path.parts and (rel_path.parts[0] == state.marked_subdir or rel_path.parts[0] == state.preview_subdir):
-            return "⛔ 禁止访问系统文件夹", 403
-    except ValueError:
-        pass  # 路径不在 base_dir 下，后续 404 处理
+    if _is_system_path(path):
+        return "⛔ 禁止访问系统文件夹", 403
 
     photos = []
     for f in path.rglob("*"):
@@ -78,7 +87,14 @@ def album_view(album_name):
 def get_preview(album, filename):
     # 原始文件的完整路径 (state.base_dir / album / filename)
     original_path = safe_join(state.base_dir, album, filename)
-    if not original_path or not original_path.exists():
+    if not original_path:
+        abort(404)
+
+    # 🔒 禁止借预览路由窥探系统目录(标记 / 预览缓存)
+    if _is_system_path(original_path):
+        abort(403)
+
+    if not original_path.exists():
         abort(404)
 
     # 计算预览文件的完整路径
@@ -94,6 +110,9 @@ def get_preview(album, filename):
         # 如果不存在，则生成它
         success = generator.generate_sync(original_path, preview_path)
         if not success:
+            # 🔒 RAW 文件禁止下载原图：预览生成失败时不能降级返回原始 RAW
+            if original_path.suffix.lower() in state.raw_extensions:
+                abort(404)
             # 如果生成失败，直接返回原图，但不返回原图的 mime-type
             # 这是一个简单的降级策略，虽然返回原图，但文件路径仍是 /file/preview/...
             return send_file(original_path)
@@ -104,7 +123,19 @@ def get_preview(album, filename):
 @app.route('/file/original/<path:album>/<path:filename>')
 def get_original(album, filename):
     path = safe_join(state.base_dir, album, filename)
-    if not path or not path.exists(): abort(404)
+    if not path:
+        abort(404)
+
+    # 🔒 禁止直接访问系统目录(标记 / 预览缓存)
+    if _is_system_path(path):
+        abort(403)
+
+    # 🔒 RAW 文件禁止查看 / 下载原图(与前端禁用按钮保持一致，防止直接构造 URL 绕过)
+    if path.suffix.lower() in state.raw_extensions:
+        abort(403)
+
+    if not path.exists():
+        abort(404)
     return send_file(path)
 
 

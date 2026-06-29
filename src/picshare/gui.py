@@ -105,7 +105,8 @@ class ServerGUI:
         self._append_log("✅ 服务已启动，等待连接")
         self.refresh()
         threading.Thread(target=app.run,
-                         kwargs={"host": "::", "port": state.port, "debug": False, "use_reloader": False},
+                         kwargs={"host": "::", "port": state.port, "debug": False,
+                                 "use_reloader": False, "threaded": True},
                          daemon=True).start()
         threading.Thread(target=lambda: generator.scan_all(Path(state.base_dir)), daemon=True).start()
 

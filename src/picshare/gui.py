@@ -4,6 +4,7 @@ from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
 
 from . import status
+from . import tokens
 from .config import state
 from .network import get_ipv6_addresses_v2
 from .preview import generator
@@ -74,6 +75,11 @@ class ServerGUI:
         tk.Button(btn_frame, text="❓ 帮助与提示", command=self.show_help,
                   bg=self.style['input'], fg='white', relief='flat', font=("Microsoft YaHei UI", 10)
                   ).pack(side='left', fill='x', expand=True, ipady=6, padx=(5, 0))
+
+        # 相册访问管理：生成 / 撤销专属访问链接
+        tk.Button(card, text="🔗 相册访问管理（生成 / 撤销专属链接）", command=self.show_token_manager,
+                  bg=self.style['success'], fg='#1E1E1E', relief='flat', font=("Microsoft YaHei UI", 10, "bold")
+                  ).pack(fill='x', pady=(0, 10), ipady=6)
 
         tk.Label(card, text="运行日志", bg=self.style['panel'], fg='#666', font=("Segoe UI", 9)).pack(anchor='w',
                                                                                                       pady=(15, 5))
@@ -190,6 +196,131 @@ class ServerGUI:
 - 本程序目前没有访问密码，安全性依赖于 IPv6 地址的随机性和复杂性。请谨慎分享您的地址。
         """
         messagebox.showinfo("帮助与网络风险提示", help_message)
+
+    # ====== 相册访问管理 ======
+    def _list_albums(self):
+        """列出根目录下可作为相册的子文件夹(跳过系统目录与隐藏目录)。"""
+        base = Path(state.base_dir)
+        if not base.exists():
+            return []
+        skip = {state.marked_subdir, state.preview_subdir}
+        return sorted(d.name for d in base.iterdir()
+                      if d.is_dir() and d.name not in skip and not d.name.startswith('._'))
+
+    def _base_url(self):
+        ips = get_ipv6_addresses_v2()
+        host = f"[{ips[0]}]" if ips else "localhost"
+        return f"http://{host}:{state.port}"
+
+    def show_token_manager(self):
+        if not Path(state.base_dir).exists():
+            messagebox.showwarning("提示", "请先选择有效的相册根目录。", parent=self.root)
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("相册访问管理")
+        win.geometry("640x560")
+        win.configure(bg=self.style['bg'])
+
+        # --- 生成区 ---
+        gen = tk.LabelFrame(win, text=" 生成访问链接 ", bg=self.style['panel'], fg=self.style['fg'],
+                            font=("Microsoft YaHei UI", 10, "bold"), padx=15, pady=15, bd=0)
+        gen.pack(fill='x', padx=15, pady=(15, 8))
+
+        tk.Label(gen, text="相册", bg=self.style['panel'], fg=self.style['fg']).grid(row=0, column=0, sticky='w', pady=4)
+        album_var = tk.StringVar()
+        album_cb = ttk.Combobox(gen, textvariable=album_var, values=self._list_albums(), state='readonly', width=30)
+        album_cb.grid(row=0, column=1, sticky='w', padx=8, pady=4)
+        if album_cb['values']:
+            album_cb.current(0)
+
+        tk.Label(gen, text="有效期", bg=self.style['panel'], fg=self.style['fg']).grid(row=1, column=0, sticky='w', pady=4)
+        expiry_var = tk.StringVar(value="永久")
+        ttk.Combobox(gen, textvariable=expiry_var, values=["永久", "7 天", "30 天", "90 天"],
+                     state='readonly', width=30).grid(row=1, column=1, sticky='w', padx=8, pady=4)
+
+        tk.Label(gen, text="口令(可空)", bg=self.style['panel'], fg=self.style['fg']).grid(row=2, column=0, sticky='w', pady=4)
+        pass_var = tk.StringVar()
+        tk.Entry(gen, textvariable=pass_var, bg=self.style['input'], fg='white', relief='flat', width=32).grid(
+            row=2, column=1, sticky='w', padx=8, pady=4, ipady=3)
+
+        # --- 已生成 token 列表 ---
+        list_frame = tk.Frame(win, bg=self.style['bg'])
+        list_frame.pack(fill='both', expand=True, padx=15, pady=8)
+        cols = ("album", "expires", "passcode")
+        tree = ttk.Treeview(list_frame, columns=cols, show='headings', height=10)
+        tree.heading("album", text="相册")
+        tree.heading("expires", text="有效期至")
+        tree.heading("passcode", text="口令")
+        tree.column("album", width=260)
+        tree.column("expires", width=150)
+        tree.column("passcode", width=70, anchor='center')
+        tree.pack(side='left', fill='both', expand=True)
+        sb = ttk.Scrollbar(list_frame, orient='vertical', command=tree.yview)
+        sb.pack(side='right', fill='y')
+        tree.configure(yscrollcommand=sb.set)
+
+        token_by_item = {}
+
+        def reload_tokens():
+            tree.delete(*tree.get_children())
+            token_by_item.clear()
+            for tok, meta in tokens.list_tokens():
+                exp = meta.get('expires')
+                exp_disp = exp[:10] if exp else "永久"
+                pc = "有" if meta.get('passcode_hash') else "无"
+                item = tree.insert('', 'end', values=(meta.get('label') or meta.get('album'), exp_disp, pc))
+                token_by_item[item] = tok
+
+        def do_generate():
+            album = album_var.get().strip()
+            if not album:
+                messagebox.showwarning("提示", "请先选择相册。", parent=win)
+                return
+            days_map = {"永久": None, "7 天": 7, "30 天": 30, "90 天": 90}
+            days = days_map.get(expiry_var.get())
+            passcode = pass_var.get().strip() or None
+            tok = tokens.create_token(album, expires_days=days, passcode=passcode, label=album)
+            url = f"{self._base_url()}/a/{tok}"
+            self.root.clipboard_clear()
+            self.root.clipboard_append(url)
+            pass_var.set('')
+            reload_tokens()
+            messagebox.showinfo("已生成并复制", f"专属链接已复制到剪贴板：\n\n{url}", parent=win)
+
+        def _selected_token():
+            sel = tree.selection()
+            return token_by_item.get(sel[0]) if sel else None
+
+        def do_copy():
+            tok = _selected_token()
+            if not tok:
+                return
+            url = f"{self._base_url()}/a/{tok}"
+            self.root.clipboard_clear()
+            self.root.clipboard_append(url)
+            messagebox.showinfo("已复制", url, parent=win)
+
+        def do_revoke():
+            tok = _selected_token()
+            if not tok:
+                return
+            if messagebox.askyesno("确认撤销", "撤销后该链接将立即失效，确定吗？", parent=win):
+                tokens.revoke_token(tok)
+                reload_tokens()
+
+        tk.Button(gen, text="生成并复制链接", command=do_generate,
+                  bg=self.style['accent'], fg='white', relief='flat', font=("Microsoft YaHei UI", 10, "bold")
+                  ).grid(row=3, column=1, sticky='w', padx=8, pady=(10, 0), ipady=4)
+
+        ops = tk.Frame(win, bg=self.style['bg'])
+        ops.pack(fill='x', padx=15, pady=(0, 15))
+        tk.Button(ops, text="复制选中链接", command=do_copy, bg=self.style['input'], fg='white',
+                  relief='flat').pack(side='left', ipady=4, padx=(0, 8))
+        tk.Button(ops, text="撤销选中", command=do_revoke, bg='#7a2e2e', fg='white',
+                  relief='flat').pack(side='left', ipady=4)
+
+        reload_tokens()
 
 
 def main():

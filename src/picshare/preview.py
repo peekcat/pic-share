@@ -2,7 +2,7 @@ import os
 import subprocess
 import logging
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PIL import Image
 
@@ -168,13 +168,13 @@ class PreviewGenerator:
             return False
 
     def generate_task(self, original_path, preview_path):
-        self.generate_sync(original_path, preview_path)
+        return self.generate_sync(original_path, preview_path)
 
     def scan_all(self, root_path: Path):
         if not root_path.exists():
             return
         update_global_status("⏳ 正在后台预热缩略图...")
-        count = 0
+        futures = []
         try:
             for item in root_path.iterdir():
                 # 跳过系统文件夹
@@ -197,18 +197,38 @@ class PreviewGenerator:
 
                             if str(preview_path) not in self.scanned_files:
                                 if not preview_path.exists():
-                                    self.executor.submit(self.generate_task, file_path, preview_path)
-                                    count += 1
+                                    futures.append(
+                                        self.executor.submit(self.generate_task, file_path, preview_path))
                                 self.scanned_files.add(str(preview_path))
                         except ValueError:
                             continue
-
-            if count > 0:
-                update_global_status(f"⚡ 处理中: {count} 张新图片")
-            else:
-                update_global_status("✅ 就绪: 所有图片已索引")
-        except Exception as e:
+        except Exception:
             logger.exception("扫描出错")
+            update_global_status("⚠️ 扫描出错")
+            return
+
+        total = len(futures)
+        if total == 0:
+            update_global_status("✅ 就绪: 所有图片已索引")
+            return
+
+        # 等待后台生成真正完成，并上报进度（而不是停在"处理中"）
+        update_global_status(f"⚡ 预热中: 0/{total}")
+        done = failed = 0
+        for fut in as_completed(futures):
+            done += 1
+            try:
+                if not fut.result():
+                    failed += 1
+            except Exception:
+                failed += 1
+            if done % 10 == 0:
+                update_global_status(f"⚡ 预热中: {done}/{total}")
+
+        if failed:
+            update_global_status(f"✅ 预热完成: {total} 张（{failed} 张失败）")
+        else:
+            update_global_status(f"✅ 预热完成: 共 {total} 张")
 
 
 generator = PreviewGenerator()

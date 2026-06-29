@@ -1,12 +1,10 @@
-# PicShareLite-IPV6
+# pic-share
 
-This is a program developed for professional photographers or photography studios. It exposes your IPv6 address so that your clients can access a specific folder, select the photos they like for retouching, or download the photos you have already edited.
+This is a client photo selection and delivery system designed specifically for photographers. Through a modern web album, clients can browse, mark favorite photos online, and download originals, completely eliminating the compression and inefficiency of WeChat file transfers.
+这是一款专为摄影师设计的客户选片交付系统。通过现代化的网页相册，让客户在线浏览、标记心仪照片，支持原图下载，彻底告别微信传图的压缩和低效。
 
 You need to install ImageMagick to use the RAW preview function of this software.
 你需要安装 ImageMagick 才能正常使用这个软件的 RAW 预览图功能。
-
-PicShareLite 是专为摄影师设计的客户选片交付系统。通过现代化的网页相册，让客户在线浏览、标记心仪照片，支持原图下载，彻底告别微信传图的压缩和低效。
-PicShareLite is a client photo selection and delivery system designed specifically for photographers. Through a modern web album, clients can browse, mark favorite photos online, and download originals, completely eliminating the compression and inefficiency of WeChat file transfers.
 
 ## 核心功能 / Key Features
 

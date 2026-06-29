@@ -235,8 +235,8 @@ class ServerGUI:
             album_cb.current(0)
 
         tk.Label(gen, text="有效期", bg=self.style['panel'], fg=self.style['fg']).grid(row=1, column=0, sticky='w', pady=4)
-        expiry_var = tk.StringVar(value="永久")
-        ttk.Combobox(gen, textvariable=expiry_var, values=["永久", "7 天", "30 天", "90 天"],
+        expiry_var = tk.StringVar(value="3 天")
+        ttk.Combobox(gen, textvariable=expiry_var, values=["3 天", "7 天", "14 天"],
                      state='readonly', width=30).grid(row=1, column=1, sticky='w', padx=8, pady=4)
 
         tk.Label(gen, text="口令(可空)", bg=self.style['panel'], fg=self.style['fg']).grid(row=2, column=0, sticky='w', pady=4)
@@ -277,8 +277,8 @@ class ServerGUI:
             if not album:
                 messagebox.showwarning("提示", "请先选择相册。", parent=win)
                 return
-            days_map = {"永久": None, "7 天": 7, "30 天": 30, "90 天": 90}
-            days = days_map.get(expiry_var.get())
+            days_map = {"3 天": 3, "7 天": 7, "14 天": 14}
+            days = days_map.get(expiry_var.get(), 3)  # 默认 3 天
             passcode = pass_var.get().strip() or None
             tok = tokens.create_token(album, expires_days=days, passcode=passcode, label=album)
             url = f"{self._base_url()}/share/{tok}"

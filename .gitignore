@@ -6,6 +6,7 @@ dist/
 .eggs/
 .venv/
 venv/
+.build-venv/
 .DS_Store
 
 # 运行时生成的缓存 / 标记目录 / 访问 token

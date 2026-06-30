@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "picshare"
-version = "0.4.0"
+version = "0.5.0"
 description = "基于 IPv6 的私有照片共享服务器(极速预览 · 智能缓存 · 安全访问)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,9 @@ dependencies = [
     "Pillow>=9.0",
     "customtkinter>=5.2",
 ]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
 
 [project.scripts]
 picshare = "picshare.gui:main"

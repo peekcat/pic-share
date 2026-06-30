@@ -1,0 +1,95 @@
+name: build
+
+# 推 tag（v 开头）或在 Actions 页面手动触发时，
+# 同时构建 macOS arm64 / macOS x64 / Windows x64 / Linux x64 产物。
+# 推 tag 时还会自动创建 GitHub Release 并附上四个平台的压缩包。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14          # Apple Silicon 运行器 → arm64
+            name: macos-arm64
+            artifact: PicShare-macos-arm64
+          - os: macos-13          # Intel 运行器 → x86_64
+            name: macos-x64
+            artifact: PicShare-macos-x64
+          - os: windows-latest    # x86_64 运行器
+            name: windows-x64
+            artifact: PicShare-windows-x64
+          - os: ubuntu-22.04      # x86_64；用较旧版本以兼容更多发行版的 glibc
+            name: linux-x64
+            artifact: PicShare-linux-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Linux 下打包 tkinter/customtkinter 需要系统 Tcl/Tk 库
+      - name: Install Tcl/Tk (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk tk-dev
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install "pyinstaller>=6.0"
+
+      - name: Build
+        run: pyinstaller picshare.spec --noconfirm --clean
+
+      # 各平台分别打包成单个压缩文件，作为 artifact / Release 附件
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent "dist/PicShare.app" "${{ matrix.artifact }}.zip"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: tar -czf "${{ matrix.artifact }}.tar.gz" -C dist PicShare
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path dist/PicShare -DestinationPath "${{ matrix.artifact }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.zip
+            ${{ matrix.artifact }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    # 仅在推 tag 时发布；手动触发（无 tag）只构建不发布
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

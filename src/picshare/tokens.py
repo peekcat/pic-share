@@ -4,7 +4,8 @@
 客户凭 ``/share/<token>`` 访问，相册名由 token 在服务端推导，客户无法指定。
 
 token 存储在 ``<根目录>/._access_tokens.json``，由桌面端创建/撤销，
-Web 端只做只读校验。口令以哈希形式存储（werkzeug，零新依赖），绝不落明文。
+Web 端只做只读校验。可选口令以明文存储，以便桌面端随时复制重发；其安全性来自
+「口令不嵌入分享链接、与链接分开发送」，而非磁盘哈希。
 """
 
 import json
@@ -125,12 +126,6 @@ def resolve(token: str):
     if meta is None or _is_expired(meta):
         return None
     return meta
-
-
-def requires_passcode(token: str) -> bool:
-    """该 token 是否设置了口令。"""
-    meta = resolve(token)
-    return bool(meta and meta.get("passcode"))
 
 
 def verify_passcode(token: str, code: str) -> bool:

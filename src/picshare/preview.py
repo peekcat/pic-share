@@ -6,7 +6,9 @@ import logging
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from PIL import Image
+from io import BytesIO
+
+from PIL import Image, ImageOps, ExifTags, JpegImagePlugin
 
 from .config import state
 from .status import update_global_status
@@ -115,9 +117,6 @@ class PreviewGenerator:
     def extract_embedded_thumbnail(image_path: Path) -> Image.Image | None:
         """尝试从 RAW 文件中提取内嵌的 JPEG 缩略图"""
         try:
-            from PIL import Image, ExifTags, JpegImagePlugin
-            from io import BytesIO
-
             with open(image_path, 'rb') as f:
                 img = JpegImagePlugin.JpegImageFile(f)
                 exif = img.getexif()
@@ -142,8 +141,6 @@ class PreviewGenerator:
         1. 检查是否存在 -> 2. PIL 读取 -> 3. 提取内嵌缩略图 -> 4. ImageMagick 转码
         """
         try:
-            from PIL import Image, ImageOps
-
             # 检查文件是否已存在且大小正常
             if preview_path.exists() and preview_path.stat().st_size > 100:
                 return True
@@ -151,9 +148,7 @@ class PreviewGenerator:
             preview_path.parent.mkdir(parents=True, exist_ok=True)
             img = None
 
-            # 定义 RAW 扩展名集合
-            raw_exts = {'.cr2', '.cr3', '.nef', '.arw', '.dng', '.orf', '.rw2', '.pef', '.sr2'}
-            is_raw = original_path.suffix.lower() in raw_exts
+            is_raw = original_path.suffix.lower() in state.raw_extensions
 
             # [尝试 1] RAW 优先提取内嵌 JPEG 预览：绝大多数 RAW 都内嵌了够大的预览，
             # 命中即可避免昂贵的全图解码 / 拉起 magick 子进程（Windows 上 spawn 很贵）
@@ -202,9 +197,6 @@ class PreviewGenerator:
             logger.error(f"生成预览图最终失败: {original_path} \n原因: {e}")
             return False
 
-    def generate_task(self, original_path, preview_path):
-        return self.generate_sync(original_path, preview_path)
-
     def scan_all(self, root_path: Path):
         if not root_path.exists():
             return
@@ -233,7 +225,7 @@ class PreviewGenerator:
                             if str(preview_path) not in self.scanned_files:
                                 if not preview_path.exists():
                                     futures.append(
-                                        self.executor.submit(self.generate_task, file_path, preview_path))
+                                        self.executor.submit(self.generate_sync, file_path, preview_path))
                                 self.scanned_files.add(str(preview_path))
                         except ValueError:
                             continue

@@ -149,7 +149,7 @@ class ServerGUI:
             state.base_dir = p
             settings.set_value("base_dir", p)  # 记住选择，下次启动自动恢复
             self.refresh()
-            threading.Thread(target=lambda: generator.scan_all(Path(p)), daemon=True).start()
+            self._start_prewarm(p)
 
     def refresh(self):
         # 在后台线程查 IPv6（会 spawn 子进程），查完用 root.after 回主线程刷新 UI，

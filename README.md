@@ -30,6 +30,16 @@ pip install -e .
 可选依赖：RAW 文件转码需要系统安装 [ImageMagick](https://imagemagick.org)
 （命令行 `magick` 需在 PATH 中）。
 
+### 系统运行时（桌面窗口）/ Desktop runtime
+
+桌面管理界面基于 [pywebview](https://pywebview.flowrene.org/)，使用各平台自带的系统 WebView：
+
+- **macOS**：内置 WKWebView，无需额外安装。
+- **Windows**：需要 **WebView2 运行时**。Windows 10/11 通常已自带；若窗口打不开，
+  安装 [Evergreen WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。
+- **Linux**：需要 **WebKit2GTK**，例如
+  `sudo apt install gir1.2-webkit2-4.1 libwebkit2gtk-4.1-0`（不同发行版包名略有差异）。
+
 ## 运行 / Run
 
 ```bash
@@ -38,12 +48,12 @@ picshare
 python -m picshare
 ```
 
-启动后在桌面 GUI 中：
+启动后在桌面管理窗口中：
 
 1. 点击「选择」指定相册根目录（存放各相册子文件夹的主目录）。
-2. 确认底部显示「检测到 IPv6 地址」。
-3. 点击「🔗 相册访问管理」，选中相册、设有效期 →「生成并复制链接」（默认无口令；
-   敏感相册可勾选「加访问口令」）。
+2. 点击「🔄 刷新网络」，确认出现「公网访问地址」中的 IPv6 地址。
+3. 在「🔗 相册访问管理」选中相册、设有效期 →「生成并复制链接」（默认无口令；
+   敏感相册可勾选启用访问口令）。
 4. 把**链接**（`http://[...]:5000/share/<token>`）发给客户即可浏览；
    若加了口令，则把口令**另行**发给客户手动输入（可用「复制链接 / 复制口令」按钮随时重发）。
 

@@ -34,14 +34,14 @@ def main():
         "PicShare · IPv6 相册服务",
         html=ADMIN_HTML,
         js_api=api,
-        width=560, height=780, min_size=(480, 640),
+        width=900, height=800, min_size=(620, 560),
     )
     api.set_window(window)
 
     def _on_start():
         api.log("✅ 服务已启动，等待连接")
         # 延迟一点再预热，让窗口先渲染完
-        if Path(state.base_dir).exists():
+        if state.base_dir and Path(state.base_dir).exists():
             threading.Timer(2.0, lambda: api._start_prewarm(state.base_dir)).start()
 
     webview.start(_on_start)

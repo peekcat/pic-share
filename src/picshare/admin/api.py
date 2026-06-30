@@ -5,11 +5,17 @@
 （如查 IPv6、生成 token）不会冻结界面。
 """
 
+import os
+import sys
+import base64
 import threading
-from datetime import datetime
+import subprocess
+from io import BytesIO
+from datetime import datetime, timezone
 from pathlib import Path
 
 import webview
+import qrcode
 
 from ..config import state
 from ..network import get_ipv6_addresses_v2
@@ -37,6 +43,7 @@ class Api:
         self._logs = []
         self._log_lock = threading.Lock()
         self._window = None
+        self._photo_count_cache = {}  # 相册张数缓存（照片极少变动，切目录时清空）
 
     def set_window(self, window):
         self._window = window
@@ -64,7 +71,7 @@ class Api:
     def get_state(self):
         return {
             "base_dir": state.base_dir,
-            "base_dir_exists": Path(state.base_dir).exists(),
+            "base_dir_exists": bool(state.base_dir) and Path(state.base_dir).exists(),
             "port": state.port,
         }
 
@@ -77,6 +84,7 @@ class Api:
         path = result[0]
         state.base_dir = path
         settings.set_value("base_dir", path)  # 记住选择，下次启动自动恢复
+        self._photo_count_cache.clear()
         self.log(f"📂 已选择根目录：{path}")
         self._start_prewarm(path)
         return path
@@ -96,27 +104,111 @@ class Api:
         return f"http://{host}:{state.port}"
 
     # ====== 相册 / token ======
-    def list_albums(self):
+    def _count_photos(self, album_dir: Path) -> int:
+        name = album_dir.name
+        if name in self._photo_count_cache:
+            return self._photo_count_cache[name]
+        n = 0
+        for f in album_dir.rglob("*"):
+            if f.is_file() and f.suffix.lower() in state.allowed_extensions:
+                if state.marked_subdir in f.parts or state.preview_subdir in f.parts:
+                    continue
+                n += 1
+        self._photo_count_cache[name] = n
+        return n
+
+    def _count_marked(self, album: str) -> int:
+        d = Path(state.base_dir) / state.marked_subdir / album
+        if not d.exists():
+            return 0
+        return sum(1 for f in d.rglob("*")
+                   if f.is_file() and f.suffix.lower() in state.allowed_extensions)
+
+    @staticmethod
+    def _link_status(meta: dict) -> dict:
+        exp = meta.get("expires")
+        if not exp:
+            return {"expired": False, "days_left": None}
+        try:
+            dt = datetime.fromisoformat(exp)
+            now = datetime.now(timezone.utc)
+            return {"expired": now >= dt, "days_left": max(0, (dt - now).days)}
+        except Exception:
+            return {"expired": False, "days_left": None}
+
+    def get_albums(self):
+        """仪表盘数据：每个相册的张数、已选数、状态徽章及其全部分享链接。"""
+        if not state.base_dir:
+            return {"base_dir_ok": False, "reason": "unset", "albums": []}
         base = Path(state.base_dir)
         if not base.exists():
-            return []
-        skip = {state.marked_subdir, state.preview_subdir}
-        return sorted(d.name for d in base.iterdir()
-                      if d.is_dir() and d.name not in skip and not d.name.startswith("._"))
+            return {"base_dir_ok": False, "reason": "missing", "albums": []}
 
-    def list_tokens(self):
+        # 链接按相册归集
         base_url = self._base_url()
-        out = []
+        links_by_album = {}
         for tok, meta in tokens.list_tokens():
-            out.append({
+            st = self._link_status(meta)
+            links_by_album.setdefault(meta.get("album"), []).append({
                 "token": tok,
-                "label": meta.get("label") or meta.get("album"),
-                "album": meta.get("album"),
                 "expires": (meta.get("expires") or "")[:10],
                 "passcode": meta.get("passcode") or "",
                 "url": f"{base_url}/share/{tok}",
+                "expired": st["expired"],
+                "days_left": st["days_left"],
             })
-        return out
+
+        skip = {state.marked_subdir, state.preview_subdir}
+        albums = []
+        for d in sorted(base.iterdir(), key=lambda p: p.name):
+            if not d.is_dir() or d.name in skip or d.name.startswith("._"):
+                continue
+            links = links_by_album.get(d.name, [])
+            active = [l for l in links if not l["expired"]]
+            if active:
+                badge = "active"
+                days_left = min(l["days_left"] for l in active if l["days_left"] is not None) \
+                    if any(l["days_left"] is not None for l in active) else None
+            elif links:
+                badge = "expired"
+                days_left = None
+            else:
+                badge = "none"
+                days_left = None
+            albums.append({
+                "name": d.name,
+                "photos": self._count_photos(d),
+                "marked": self._count_marked(d.name),
+                "links": links,
+                "badge": badge,
+                "days_left": days_left,
+            })
+        return {"base_dir_ok": True, "albums": albums}
+
+    def make_qr(self, text):
+        """把分享链接编码成二维码 PNG 的 data URI（不涉及任何照片内容）。"""
+        img = qrcode.make(text, border=2)
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+    def open_marked_folder(self, album):
+        """在系统文件管理器中打开该相册的「被标记的照片」目录。"""
+        base = Path(state.base_dir)
+        candidates = [base / state.marked_subdir / album, base / state.marked_subdir, base]
+        folder = next((p for p in candidates if p.exists()), None)
+        if folder is None:
+            return False
+        try:
+            if os.name == "nt":
+                os.startfile(str(folder))  # noqa: S606
+            elif sys.platform == "darwin":
+                subprocess.run(["open", str(folder)], check=False)
+            else:
+                subprocess.run(["xdg-open", str(folder)], check=False)
+            return True
+        except Exception:
+            return False
 
     def generate_passcode(self):
         return tokens.generate_passcode()

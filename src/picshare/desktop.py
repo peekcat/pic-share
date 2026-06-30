@@ -34,7 +34,7 @@ def main():
         "PicShare · IPv6 相册服务",
         html=ADMIN_HTML,
         js_api=api,
-        width=560, height=780, min_size=(480, 640),
+        width=900, height=800, min_size=(620, 560),
     )
     api.set_window(window)
 

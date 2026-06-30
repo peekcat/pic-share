@@ -1,11 +1,14 @@
 import logging
 
+from . import settings
+
 # ====== 0. 全局变量 & 配置 (不变) ======
 
 
 class ServerState:
     def __init__(self):
-        self.base_dir = r"F:\共享照片"
+        # 优先用上次保存的根目录，没有则用默认值
+        self.base_dir = settings.get("base_dir") or r"F:\共享照片"
         self.preview_subdir = "._preview_ipv6_opt"
         self.marked_subdir = "被标记的照片"
         # 访问 token 存储文件（相对根目录），由桌面端管理、Web 端只读校验

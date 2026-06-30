@@ -8,6 +8,7 @@ from pathlib import Path
 
 import customtkinter as ctk
 
+from . import settings
 from . import status
 from . import tokens
 from .config import state
@@ -146,6 +147,7 @@ class ServerGUI:
         if p:
             self.path_var.set(p)
             state.base_dir = p
+            settings.set_value("base_dir", p)  # 记住选择，下次启动自动恢复
             self.refresh()
             threading.Thread(target=lambda: generator.scan_all(Path(p)), daemon=True).start()
 

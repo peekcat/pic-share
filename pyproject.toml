@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 dependencies = [
     "Flask>=2.0",
     "Pillow>=9.0",
-    "customtkinter>=5.2",
+    "pywebview>=5.0",
     "waitress>=3.0",
 ]
 
@@ -19,7 +19,7 @@ dependencies = [
 build = ["pyinstaller>=6.0"]
 
 [project.scripts]
-picshare = "picshare.gui:main"
+picshare = "picshare.desktop:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

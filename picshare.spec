@@ -13,16 +13,16 @@
 
 import sys
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_all
 
-# customtkinter 随包携带主题/资源文件，必须显式收集，否则运行时报缺资源
-datas = collect_data_files("customtkinter")
-hiddenimports = collect_submodules("customtkinter")
+# pywebview 的平台后端（mac: cocoa/pyobjc, win: edgechromium, linux: gtk/qt）
+# 需连同数据/隐藏导入一并收集，否则打包后窗口起不来
+datas, binaries, hiddenimports = collect_all("webview")
 
 a = Analysis(
     ["packaging/launcher.py"],
     pathex=["src"],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

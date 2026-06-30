@@ -81,8 +81,8 @@ ADMIN_HTML = r'''<!DOCTYPE html>
       </select>
       <span>口令</span>
       <div class="row">
-        <label class="checkbox"><input type="checkbox" id="usePass" onchange="togglePass()">加访问口令</label>
-        <input id="passcode" type="text" placeholder="留空则随机 4 位" disabled>
+        <label class="checkbox"><input type="checkbox" id="usePass" onchange="togglePass()"/>
+        <input id="passcode" type="text" placeholder="默认口令为空" disabled>
       </div>
     </div>
     <div style="text-align:right; margin-top:12px">

@@ -108,7 +108,11 @@ class ServerGUI:
                          kwargs={"host": "::", "port": state.port, "debug": False,
                                  "use_reloader": False, "threaded": True},
                          daemon=True).start()
-        threading.Thread(target=lambda: generator.scan_all(Path(state.base_dir)), daemon=True).start()
+        # 延迟启动缩略图预热：先让窗口画完、可交互，避免预热线程池抢 GIL 造成启动卡顿
+        self.root.after(2500, lambda: self._start_prewarm(state.base_dir))
+
+    def _start_prewarm(self, base_dir):
+        threading.Thread(target=lambda: generator.scan_all(Path(base_dir)), daemon=True).start()
 
     # ====== 运行日志 ======
     def update_status(self, msg):
@@ -141,9 +145,17 @@ class ServerGUI:
             threading.Thread(target=lambda: generator.scan_all(Path(p)), daemon=True).start()
 
     def refresh(self):
+        # 在后台线程查 IPv6（会 spawn 子进程），查完用 root.after 回主线程刷新 UI，
+        # 避免「刷新网络」/ 启动 / 切换目录时阻塞界面造成卡顿。
+        def work():
+            addrs = get_ipv6_addresses_v2(force_refresh=True)[:5]
+            self.root.after(0, lambda: self._render_ips(addrs))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _render_ips(self, ipv6_addrs):
         for w in self.ip_frame.winfo_children():
             w.destroy()
-        ipv6_addrs = get_ipv6_addresses_v2()[:5]
         if ipv6_addrs:
             ctk.CTkLabel(self.ip_frame, text="点击任意地址复制完整链接：", font=self.font_small,
                          text_color=("gray45", "gray60"), anchor="w").grid(

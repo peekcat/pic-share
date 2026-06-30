@@ -1,7 +1,17 @@
 import os
 import re
 import sys
+import time
+import threading
 import subprocess
+
+# IPv6 地址会变（临时地址 / 前缀更新 / 切换网络），但短时间内稳定。
+# 用「短时效缓存」避免每次「复制/生成链接」都同步 spawn 子进程卡住 UI，
+# 同时通过 TTL 让地址变化能在 _CACHE_TTL 秒内自动跟上；「刷新网络」可强制重查。
+_CACHE_TTL = 60.0  # 秒
+_cache_lock = threading.Lock()
+_cached_addrs = None
+_cached_at = 0.0
 
 
 def _parse_ifconfig_ipv6(output):
@@ -25,7 +35,28 @@ def _parse_ifconfig_ipv6(output):
     return addrs
 
 
-def get_ipv6_addresses_v2():
+def get_ipv6_addresses_v2(force_refresh=False):
+    """返回全局 IPv6 地址列表（带 TTL 缓存）。
+
+    force_refresh=True 时无视缓存立即重查（供「刷新网络」按钮使用）。
+    建议在后台线程调用：底层会 spawn ``ipconfig``/``ifconfig``/``ip`` 子进程。
+    """
+    global _cached_addrs, _cached_at
+    now = time.monotonic()
+    with _cache_lock:
+        if (not force_refresh and _cached_addrs is not None
+                and now - _cached_at < _CACHE_TTL):
+            return _cached_addrs
+
+    addrs = _query_ipv6_addresses()
+
+    with _cache_lock:
+        _cached_addrs = addrs
+        _cached_at = time.monotonic()
+    return addrs
+
+
+def _query_ipv6_addresses():
     addrs = set()
     try:
         if os.name == 'nt':

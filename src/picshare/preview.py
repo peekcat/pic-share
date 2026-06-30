@@ -26,8 +26,10 @@ def _temp_path(final: Path) -> Path:
 
 class PreviewGenerator:
     def __init__(self):
-        # 线程池用于并发扫描和生成
-        self.executor = ThreadPoolExecutor(max_workers=8)
+        # 线程池用于并发扫描和生成。worker 数控制在 CPU 一半左右，
+        # 避免预热时 PIL 解码 / magick 子进程占满 CPU、抢 GIL 拖累 UI 与 Web 响应。
+        workers = max(2, (os.cpu_count() or 4) // 2)
+        self.executor = ThreadPoolExecutor(max_workers=workers)
         self.scanned_files = set()
 
     @staticmethod
@@ -153,17 +155,19 @@ class PreviewGenerator:
             raw_exts = {'.cr2', '.cr3', '.nef', '.arw', '.dng', '.orf', '.rw2', '.pef', '.sr2'}
             is_raw = original_path.suffix.lower() in raw_exts
 
-            # [尝试 1] 直接用 PIL 打开 (适合 JPG, PNG, 部分简单 RAW)
-            try:
-                with Image.open(original_path) as im:
-                    im.load()
-                    img = im.copy()
-            except Exception:
-                img = None
-
-            # [尝试 2] 如果是 RAW 且 PIL 失败，尝试提取内嵌预览图
-            if img is None and is_raw:
+            # [尝试 1] RAW 优先提取内嵌 JPEG 预览：绝大多数 RAW 都内嵌了够大的预览，
+            # 命中即可避免昂贵的全图解码 / 拉起 magick 子进程（Windows 上 spawn 很贵）
+            if is_raw:
                 img = self.extract_embedded_thumbnail(original_path)
+
+            # [尝试 2] 普通图片（或 RAW 无内嵌预览）用 PIL 打开
+            if img is None:
+                try:
+                    with Image.open(original_path) as im:
+                        im.load()
+                        img = im.copy()
+                except Exception:
+                    img = None
 
             # [尝试 3] 如果前两者都失败，且是 RAW，调用 ImageMagick
             if img is None and is_raw:
@@ -184,7 +188,8 @@ class PreviewGenerator:
             img.thumbnail(state.thumb_size, Image.Resampling.LANCZOS)
             tmp = _temp_path(preview_path)
             try:
-                img.save(tmp, "JPEG", quality=state.thumb_quality, optimize=True)
+                # 不用 optimize：对 640px 缩略图体积几乎无差，却显著拖慢编码
+                img.save(tmp, "JPEG", quality=state.thumb_quality)
                 os.replace(tmp, preview_path)
             except Exception:
                 if tmp.exists():

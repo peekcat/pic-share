@@ -71,7 +71,7 @@ class Api:
     def get_state(self):
         return {
             "base_dir": state.base_dir,
-            "base_dir_exists": Path(state.base_dir).exists(),
+            "base_dir_exists": bool(state.base_dir) and Path(state.base_dir).exists(),
             "port": state.port,
         }
 
@@ -138,9 +138,11 @@ class Api:
 
     def get_albums(self):
         """仪表盘数据：每个相册的张数、已选数、状态徽章及其全部分享链接。"""
+        if not state.base_dir:
+            return {"base_dir_ok": False, "reason": "unset", "albums": []}
         base = Path(state.base_dir)
         if not base.exists():
-            return {"base_dir_ok": False, "albums": []}
+            return {"base_dir_ok": False, "reason": "missing", "albums": []}
 
         # 链接按相册归集
         base_url = self._base_url()

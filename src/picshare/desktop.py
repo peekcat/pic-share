@@ -41,7 +41,7 @@ def main():
     def _on_start():
         api.log("✅ 服务已启动，等待连接")
         # 延迟一点再预热，让窗口先渲染完
-        if Path(state.base_dir).exists():
+        if state.base_dir and Path(state.base_dir).exists():
             threading.Timer(2.0, lambda: api._start_prewarm(state.base_dir)).start()
 
     webview.start(_on_start)

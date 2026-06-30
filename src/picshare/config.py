@@ -7,8 +7,8 @@ from . import settings
 
 class ServerState:
     def __init__(self):
-        # 优先用上次保存的根目录，没有则用默认值
-        self.base_dir = settings.get("base_dir") or r"F:\共享照片"
+        # 优先用上次保存的根目录；首次运行为空字符串（界面引导用户选择）
+        self.base_dir = settings.get("base_dir") or ""
         self.preview_subdir = "._preview_ipv6_opt"
         self.marked_subdir = "被标记的照片"
         # 访问 token 存储文件（相对根目录），由桌面端管理、Web 端只读校验

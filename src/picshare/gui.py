@@ -25,6 +25,14 @@ def _ui_font_family():
     return None  # 其它平台用默认字体
 
 
+def _serve_app(port):
+    """启动 Web 服务（waitress：生产级 WSGI，多线程、Windows 友好）。
+    缩略图/原图大量并发请求时远比 Flask 开发服务器稳。"""
+    from waitress import serve
+    # listen 形式同时适配 IPv6（系统多为双栈，IPv4 也可经 v4-mapped 访问）
+    serve(app, listen=f"[::]:{port}", threads=16)
+
+
 # ====== Tkinter GUI（customtkinter 现代深色界面）======
 class ServerGUI:
     def __init__(self, root):
@@ -104,10 +112,7 @@ class ServerGUI:
 
         self._append_log("✅ 服务已启动，等待连接")
         self.refresh()
-        threading.Thread(target=app.run,
-                         kwargs={"host": "::", "port": state.port, "debug": False,
-                                 "use_reloader": False, "threaded": True},
-                         daemon=True).start()
+        threading.Thread(target=_serve_app, args=(state.port,), daemon=True).start()
         # 延迟启动缩略图预热：先让窗口画完、可交互，避免预热线程池抢 GIL 造成启动卡顿
         self.root.after(2500, lambda: self._start_prewarm(state.base_dir))
 

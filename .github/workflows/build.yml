@@ -6,6 +6,7 @@ name: build
 on:
   push:
     tags: ["v*"]
+    branches: ["dev"]   # 推 dev 只构建四平台验证、不发布（release 作业仅在 tag 时跑）
   workflow_dispatch:
 
 jobs:

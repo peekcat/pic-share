@@ -93,7 +93,8 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   #logPanel.open { display:flex; }
   .lphead { display:flex; justify-content:space-between; align-items:center; padding:9px 12px; border-bottom:1px solid var(--line); font-size:13px; }
   #log { flex:1; background:#141417; overflow-y:auto; padding:8px 12px;
-         font-family:Consolas,Menlo,monospace; font-size:12px; line-height:1.6; white-space:pre-wrap; }
+         font-family:Consolas,Menlo,monospace; font-size:12px; line-height:1.6; }
+  #log > div { overflow-wrap:anywhere; }
   #log .warn { color:#E6A23C; } #log .ok { color:#67C26B; }
 
   /* 二维码弹层 */
@@ -342,12 +343,23 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   }
 
   function toggleLog(){ document.getElementById('logPanel').classList.toggle('open'); }
-  function clearLog(){ api.clear_logs().then(()=>{ document.getElementById('log').textContent=''; }); }
 
+  let logGen=0;
+  function renderLogs(logs){
+    const box=document.getElementById('log');
+    box.textContent='';
+    for(const l of logs){
+      const d=document.createElement('div');
+      d.className=/⚠️|❌|🚨/.test(l.msg)?'warn':'ok';
+      d.textContent='['+l.time+'] '+l.msg;
+      box.appendChild(d);
+    }
+    box.scrollTop=box.scrollHeight;
+  }
+  function clearLog(){ logGen++; api.clear_logs().then(()=>renderLogs([])); }
   async function pollLogs(){
-    try{ const logs=await api.get_logs(); const box=document.getElementById('log');
-      box.innerHTML=logs.map(l=>{ const w=/⚠️|❌|🚨/.test(l.msg); return '<span class="'+(w?'warn':'ok')+'">['+l.time+'] '+l.msg+'</span>'; }).join('\n');
-      box.scrollTop=box.scrollHeight; }catch(e){}
+    const g=logGen;
+    try{ const logs=await api.get_logs(); if(g===logGen) renderLogs(logs); }catch(e){}
   }
 
   function init(){

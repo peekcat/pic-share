@@ -212,7 +212,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
     const box=document.getElementById('ips'); box.innerHTML='';
     if(!ips.length){
       const w=document.createElement('div'); w.className='ipstatus warn';
-      w.textContent='⚠️ 未检测到公网 IPv6（本机或路由器暂未分配）'; box.appendChild(w); return;
+      w.textContent='⚠️ 未检测到公网 IPv6'; box.appendChild(w); return;
     }
     const st=document.createElement('div'); st.className='ipstatus';
     st.textContent='检测到 '+ips.length+' 个 · 点击复制'; box.appendChild(st);

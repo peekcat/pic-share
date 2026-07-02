@@ -1,5 +1,3 @@
-import os
-import shutil
 import secrets
 from functools import wraps
 from pathlib import Path
@@ -11,7 +9,7 @@ from ..config import state
 from ..paths import safe_join
 from ..preview import generator
 from ..status import update_global_status
-from .. import tokens
+from .. import tokens, selections
 from .templates import ALBUM_TEMPLATE, LANDING_TEMPLATE, PASSCODE_TEMPLATE
 
 app = Flask(__name__)
@@ -111,7 +109,10 @@ def album_view(token):
             except Exception:
                 continue
     title = g.meta.get('label') or album
-    return render_template_string(ALBUM_TEMPLATE, album_name=title, token=token, photos=photos)
+    # 一次性把已选文件名注入模板，前端零请求即可高亮，翻图不再逐张查询
+    selected = selections.list_selected(album)
+    return render_template_string(ALBUM_TEMPLATE, album_name=title, token=token,
+                                  photos=photos, selected=selected)
 
 
 @app.route('/share/<token>/preview/<path:filename>')
@@ -162,36 +163,33 @@ def get_original(token, filename):
     return send_file(path)
 
 
-@app.route('/share/<token>/check_mark')
-@require_token('deny')
-def check_mark(token):
-    filename = request.args.get('filename', '')
-    p = safe_join(state.base_dir, state.marked_subdir, g.album, filename)
-    return jsonify({'is_marked': bool(p and p.exists())})
-
-
 @app.route('/share/<token>/mark', methods=['POST'])
 @require_token('deny')
 def toggle_mark(token):
+    """翻转某张照片的选中态。只改选片清单，不复制原图(交付时再由桌面端导出)。"""
     album = g.album
     data = request.get_json(silent=True) or {}
     filename = data.get('filename')
     if not filename:
         return jsonify({'success': False}), 400
 
+    # 仅接受确实属于该相册的文件，避免把任意路径写进清单
     src = safe_join(state.base_dir, album, filename)
-    dst = safe_join(state.base_dir, state.marked_subdir, album, filename)
-    if not src or not dst or not src.exists():
+    if not src or not src.exists() or _is_system_path(src):
         return jsonify({'success': False})
-    try:
-        if dst.exists():
-            os.remove(dst)
-            update_global_status(f"🗑️ 取消: {Path(filename).name}")
-            return jsonify({'success': True, 'is_marked': False})
-        else:
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-            update_global_status(f"⭐ 标记: {Path(filename).name}")
-            return jsonify({'success': True, 'is_marked': True})
-    except Exception:
-        return jsonify({'success': False})
+
+    is_marked, count = selections.toggle(album, filename)
+    update_global_status(
+        (f"⭐ 选片: {Path(filename).name}" if is_marked else f"↩️ 取消: {Path(filename).name}")
+        + f"（{album} 共 {count} 张）")
+    return jsonify({'success': True, 'is_marked': is_marked, 'count': count})
+
+
+@app.route('/share/<token>/clear_selection', methods=['POST'])
+@require_token('deny')
+def clear_selection(token):
+    """清空该相册当前客户端的全部选择。"""
+    n = selections.clear_selected(g.album)
+    if n:
+        update_global_status(f"🧹 已清空选择：{g.album}（原 {n} 张）")
+    return jsonify({'success': True, 'count': 0})

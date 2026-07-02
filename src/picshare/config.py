@@ -13,6 +13,8 @@ class ServerState:
         self.marked_subdir = "被标记的照片"
         # 访问 token 存储文件（相对根目录），由桌面端管理、Web 端只读校验
         self.token_file = "._access_tokens.json"
+        # 客户选片清单（相对根目录），Web 端读写、桌面端导出时读取
+        self.selection_file = "._selections.json"
 
         # [修改] 提高分辨率到 640x640
         self.thumb_size = (640, 640)

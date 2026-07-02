@@ -16,13 +16,19 @@ CSS_STYLE = '''
 body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
 
 /* 导航栏 */
-.navbar { position: fixed; top: 0; width: 100%; height: 44px; z-index: 100;
+.navbar { position: fixed; top: 0; width: 100%; box-sizing: border-box; height: 44px; z-index: 100;
     background: var(--bar-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     border-bottom: 0.5px solid rgba(255,255,255,0.1);
     display: flex; align-items: center; justify-content: space-between;
     padding: env(safe-area-inset-top) 10px 0 10px; height: calc(44px + env(safe-area-inset-top)); }
-.nav-btn { color: var(--accent); background: none; border: none; padding: 10px; cursor: pointer; display: flex; align-items: center;}
-.nav-title { font-weight: 600; font-size: 17px; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-btn { color: var(--accent); background: none; border: none; padding: 10px; cursor: pointer; display: flex; align-items: center; flex-shrink: 0; }
+.nav-title { flex: 1; min-width: 0; text-align: center; font-weight: 600; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
+/* 选片汇总 */
+.sel-summary { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.sel-count { font-size: 13px; color: rgba(255,255,255,0.6); white-space: nowrap; }
+.sel-count.has { color: #FFD700; font-weight: 600; }
+.sel-clear { display: none; background: none; border: none; color: var(--accent); font-size: 13px; padding: 8px 4px; cursor: pointer; }
+.sel-clear.show { display: inline; }
 
 /* 网格布局 */
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: calc(50px + env(safe-area-inset-top)) 0 20px 0; }
@@ -108,7 +114,10 @@ ALBUM_TEMPLATE = '''
     <div class="navbar">
         <a href="/" class="nav-btn">''' + ICONS['back'] + '''&nbsp;返回</a>
         <div class="nav-title">{{ album_name }}</div>
-        <div style="width: 44px;"></div>
+        <div class="sel-summary">
+            <span class="sel-count" id="sel-count">已选 0</span>
+            <button class="sel-clear" id="sel-clear" onclick="clearSelection()">清空</button>
+        </div>
     </div>
 
     <div class="grid">
@@ -162,7 +171,19 @@ ALBUM_TEMPLATE = '''
         let curIdx = 0;
         let isOrig = false;
 
+        // 已选状态由服务端一次性注入，翻图无需再逐张查询
         let markedState = {};
+        {{ selected | tojson }}.forEach(f => { markedState[f] = true; });
+        let selCount = Object.keys(markedState).length;
+
+        const selCountEl = document.getElementById('sel-count');
+        const selClearEl = document.getElementById('sel-clear');
+        function updateSelCount() {
+            selCountEl.textContent = '已选 ' + selCount;
+            selCountEl.classList.toggle('has', selCount > 0);
+            selClearEl.classList.toggle('show', selCount > 0);
+        }
+        updateSelCount();
 
         // Lazy Load Logic
         const observer = new IntersectionObserver((entries, obs) => {
@@ -219,20 +240,8 @@ ALBUM_TEMPLATE = '''
             // [修改] 更新原图按钮状态（检查是否为 RAW）
             updateOrigUI();
 
-            // 检查收藏状态
-            const currentFile = photos[curIdx].filename;
-            if (currentFile in markedState) {
-                renderMark(markedState[currentFile]);
-            } else {
-                renderMark(false);
-                fetch(`/share/${token}/check_mark?filename=${encodeURIComponent(currentFile)}`)
-                    .then(r=>r.json()).then(d => {
-                        markedState[currentFile] = d.is_marked;
-                        if(curIdx === photos.findIndex(p => p.filename === currentFile)) {
-                            renderMark(d.is_marked);
-                        }
-                    });
-            }
+            // 收藏状态已全量注入，直接渲染即可
+            renderMark(!!markedState[photos[curIdx].filename]);
         }
 
         function next(e) {
@@ -303,25 +312,52 @@ ALBUM_TEMPLATE = '''
         function toggleMark(e) {
             e.stopPropagation();
             const currentFile = photos[curIdx].filename;
-            const nextState = !markedState[currentFile];
+            const prevState = !!markedState[currentFile];
+            const nextState = !prevState;
 
+            // 乐观更新
             markedState[currentFile] = nextState;
+            selCount += nextState ? 1 : -1;
             renderMark(nextState);
+            updateSelCount();
 
             fetch(`/share/${token}/mark`, {
                 method:'POST', headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({filename:currentFile})
             }).then(r=>r.json()).then(d => {
                 if(!d.success) {
-                    markedState[currentFile] = !nextState;
-                    renderMark(markedState[currentFile]);
+                    markedState[currentFile] = prevState;
+                    selCount += prevState ? 1 : -1;
+                    renderMark(prevState);
+                    updateSelCount();
                     alert('收藏操作失败，请检查网络。');
+                    return;
                 }
+                // 以服务端为准校正（含并发场景下的计数）
+                markedState[currentFile] = d.is_marked;
+                if (typeof d.count === 'number') { selCount = d.count; }
+                renderMark(d.is_marked);
+                updateSelCount();
             }).catch(() => {
-                markedState[currentFile] = !nextState;
-                renderMark(markedState[currentFile]);
+                markedState[currentFile] = prevState;
+                selCount += prevState ? 1 : -1;
+                renderMark(prevState);
+                updateSelCount();
                 alert('网络连接错误。');
             });
+        }
+
+        function clearSelection() {
+            if (selCount === 0) return;
+            if (!confirm('确定清空全部 ' + selCount + ' 张选择吗？')) return;
+            fetch(`/share/${token}/clear_selection`, { method:'POST' })
+                .then(r=>r.json()).then(d => {
+                    if (!d.success) { alert('清空失败，请重试。'); return; }
+                    markedState = {};
+                    selCount = 0;
+                    updateSelCount();
+                    if (viewer.style.display === 'flex') renderMark(false);
+                }).catch(() => alert('网络连接错误。'));
         }
 
         function renderMark(isMarked) {

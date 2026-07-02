@@ -8,6 +8,7 @@
 import os
 import sys
 import base64
+import shutil
 import threading
 import subprocess
 from io import BytesIO
@@ -18,9 +19,10 @@ import webview
 import qrcode
 
 from ..config import state
+from ..paths import safe_join
 from ..network import get_ipv6_addresses_v2
 from ..preview import generator
-from .. import settings, tokens
+from .. import settings, tokens, selections
 
 _HELP_TEXT = """【使用教程】
 1. 设置根目录：点击「选择」，指定存放各相册子文件夹的主目录。
@@ -126,11 +128,7 @@ class Api:
         return n
 
     def _count_marked(self, album: str) -> int:
-        d = Path(state.base_dir) / state.marked_subdir / album
-        if not d.exists():
-            return 0
-        return sum(1 for f in d.rglob("*")
-                   if f.is_file() and f.suffix.lower() in state.allowed_extensions)
+        return selections.count_selected(album)
 
     @staticmethod
     def _link_status(meta: dict) -> dict:
@@ -200,10 +198,58 @@ class Api:
         img.save(buf, format="PNG")
         return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
+    def _sync_marked_folder(self, album: str, dest: Path) -> tuple[int, int]:
+        """把 dest 内容对齐到选片清单：补齐已选原图，清理已取消的本相册副本。
+
+        只删除「同时存在于源相册」的残留副本(即我们导出来的)，绝不动摄影师
+        自己手工放进该文件夹的其它文件。返回 (新增数, 删除数)。
+        """
+        selected = selections.list_selected(album)
+        selected_set = set(selected)
+
+        copied = 0
+        for rel in selected:
+            src = safe_join(state.base_dir, album, rel)
+            dst = safe_join(str(dest), rel)
+            if not src or not dst or not src.exists():
+                continue
+            if not dst.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+                copied += 1
+
+        removed = 0
+        if dest.exists():
+            for f in dest.rglob("*"):
+                if not f.is_file():
+                    continue
+                try:
+                    rel = f.relative_to(dest).as_posix()
+                except ValueError:
+                    continue
+                if rel in selected_set:
+                    continue
+                src = safe_join(state.base_dir, album, rel)  # 仅清理确属该相册的副本
+                if src and src.exists():
+                    try:
+                        f.unlink()
+                        removed += 1
+                    except Exception:
+                        pass
+        return copied, removed
+
     def open_marked_folder(self, album):
-        """在系统文件管理器中打开该相册的「被标记的照片」目录。"""
+        """按选片清单导出原图到「被标记的照片/<相册>」，然后在文件管理器中打开。"""
         base = Path(state.base_dir)
-        candidates = [base / state.marked_subdir / album, base / state.marked_subdir, base]
+        dest = base / state.marked_subdir / album
+        try:
+            copied, removed = self._sync_marked_folder(album, dest)
+            if copied or removed:
+                self.log(f"📦 已导出选片：{album}（新增 {copied}，清理 {removed}）")
+        except Exception:
+            self.log(f"⚠️ 导出选片时出错：{album}")
+
+        candidates = [dest, base / state.marked_subdir, base]
         folder = next((p for p in candidates if p.exists()), None)
         if folder is None:
             return False

@@ -121,7 +121,8 @@ class Api:
         n = 0
         for f in album_dir.rglob("*"):
             if f.is_file() and f.suffix.lower() in state.allowed_extensions:
-                if state.marked_subdir in f.parts or state.preview_subdir in f.parts:
+                if any(d in f.parts for d in
+                       (state.marked_subdir, state.preview_subdir, state.view_subdir)):
                     continue
                 n += 1
         self._photo_count_cache[name] = n
@@ -164,7 +165,7 @@ class Api:
                 "days_left": st["days_left"],
             })
 
-        skip = {state.marked_subdir, state.preview_subdir}
+        skip = {state.marked_subdir, state.preview_subdir, state.view_subdir}
         albums = []
         for d in sorted(base.iterdir(), key=lambda p: p.name):
             if not d.is_dir() or d.name in skip or d.name.startswith("._"):

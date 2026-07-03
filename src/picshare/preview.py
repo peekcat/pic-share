@@ -35,7 +35,7 @@ class PreviewGenerator:
         self.scanned_files = set()
 
     @staticmethod
-    def generate_raw_preview_with_magick(original_path: Path, preview_path: Path) -> bool:
+    def generate_raw_preview_with_magick(original_path: Path, preview_path: Path, size, quality) -> bool:
         """
         使用 ImageMagick 命令行工具 (magick) 生成 RAW 预览图。
         修复了参数传递问题，并增加了 Windows 下隐藏黑框的处理。
@@ -57,8 +57,8 @@ class PreviewGenerator:
                 command,
                 str(original_path),
                 '-auto-orient',
-                '-thumbnail', f"{state.thumb_size[0]}x{state.thumb_size[1]}>",
-                '-quality', str(state.thumb_quality),
+                '-thumbnail', f"{size[0]}x{size[1]}>",
+                '-quality', str(quality),
                 f"JPG:{str(tmp)}"
             ]
 
@@ -135,11 +135,15 @@ class PreviewGenerator:
             pass
         return None
 
-    def generate_sync(self, original_path: Path, preview_path: Path):
+    def generate_sync(self, original_path: Path, preview_path: Path, size=None, quality=None):
         """
         同步生成预览图逻辑：
         1. 检查是否存在 -> 2. PIL 读取 -> 3. 提取内嵌缩略图 -> 4. ImageMagick 转码
+
+        size/quality 缺省用网格小图参数；查看大图传入 view_size/view_quality。
         """
+        size = size or state.thumb_size
+        quality = quality or state.thumb_quality
         try:
             # 检查文件是否已存在且大小正常
             if preview_path.exists() and preview_path.stat().st_size > 100:
@@ -168,7 +172,7 @@ class PreviewGenerator:
             if img is None and is_raw:
                 # 注意：Magick 会直接生成文件，不需要后续的 PIL save 操作
                 # 直接返回 Magick 的执行结果
-                return self.generate_raw_preview_with_magick(original_path, preview_path)
+                return self.generate_raw_preview_with_magick(original_path, preview_path, size, quality)
 
             # 如果以上方法都无法获取图像对象，则宣告失败
             if img is None:
@@ -180,11 +184,11 @@ class PreviewGenerator:
                 img = img.convert("RGB")
 
             # 缩放并原子保存：先写临时文件再 rename，避免半截文件 / 并发写冲突
-            img.thumbnail(state.thumb_size, Image.Resampling.LANCZOS)
+            img.thumbnail(size, Image.Resampling.LANCZOS)
             tmp = _temp_path(preview_path)
             try:
-                # 不用 optimize：对 640px 缩略图体积几乎无差，却显著拖慢编码
-                img.save(tmp, "JPEG", quality=state.thumb_quality)
+                # 不用 optimize：对缩略图体积几乎无差，却显著拖慢编码
+                img.save(tmp, "JPEG", quality=quality)
                 os.replace(tmp, preview_path)
             except Exception:
                 if tmp.exists():
@@ -205,7 +209,7 @@ class PreviewGenerator:
         try:
             for item in root_path.iterdir():
                 # 跳过系统文件夹
-                if item.name in (state.marked_subdir, state.preview_subdir):
+                if item.name in (state.marked_subdir, state.preview_subdir, state.view_subdir):
                     continue
 
                 if item.is_dir():
@@ -215,7 +219,8 @@ class PreviewGenerator:
                         if file_path.suffix.lower() not in state.allowed_extensions:
                             continue
                         # 防御性检查
-                        if state.marked_subdir in file_path.parts or state.preview_subdir in file_path.parts:
+                        if any(d in file_path.parts for d in
+                               (state.marked_subdir, state.preview_subdir, state.view_subdir)):
                             continue
 
                         try:

@@ -176,6 +176,7 @@ ALBUM_TEMPLATE = '''
         const token = "{{ token }}";
         let curIdx = 0;
         let isOrig = false;
+        let loadViewGen = 0;   // 防止旧大图迟到后覆盖新图
 
         // 已选状态由服务端一次性注入，翻图无需再逐张查询
         let markedState = {};
@@ -265,17 +266,30 @@ ALBUM_TEMPLATE = '''
             // 每次切换图片，重置原图状态
             isOrig = false;
             showLoading(false);
+            const p = viewList[curIdx];
 
-            // 加载预览图
+            // 先用小图占位（网格多半已缓存，秒显）
+            vImg.onerror = null;
             vImg.style.opacity = 0.3;
-            vImg.src = viewList[curIdx].preview;
-            vImg.onload = () => vImg.style.opacity = 1;
+            vImg.src = p.preview;
+            vImg.onload = () => { vImg.style.opacity = 1; };
+
+            // 后台预加载清晰大图，成功后无缝替换（迟到/失败则保留小图）
+            const gen = ++loadViewGen;
+            const hi = new Image();
+            hi.onload = () => {
+                if (gen === loadViewGen && !isOrig) {
+                    vImg.src = hi.src;
+                    vImg.style.opacity = 1;
+                }
+            };
+            hi.src = p.view;
 
             // [修改] 更新原图按钮状态（检查是否为 RAW）
             updateOrigUI();
 
             // 收藏状态已全量注入，直接渲染即可
-            renderMark(!!markedState[viewList[curIdx].filename]);
+            renderMark(!!markedState[p.filename]);
         }
 
         function next(e) {
@@ -321,7 +335,9 @@ ALBUM_TEMPLATE = '''
                 tempImg.src = viewList[curIdx].original;
             } else {
                 showLoading(false);
-                vImg.src = viewList[curIdx].preview;
+                const p = viewList[curIdx];
+                vImg.onerror = () => { vImg.onerror = null; vImg.src = p.preview; };
+                vImg.src = p.view;   // 退出原图回到清晰大图，失败回退小图
                 vImg.style.opacity = 1;
             }
         }

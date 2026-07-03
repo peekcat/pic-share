@@ -33,7 +33,7 @@ def _is_system_path(resolved: Path) -> bool:
         rel = resolved.relative_to(Path(state.base_dir).resolve())
     except ValueError:
         return False
-    forbidden = (state.marked_subdir, state.preview_subdir)
+    forbidden = (state.marked_subdir, state.preview_subdir, state.view_subdir)
     return any(part in forbidden for part in rel.parts)
 
 
@@ -96,13 +96,15 @@ def album_view(token):
     for f in path.rglob("*"):
         if f.is_file() and f.suffix.lower() in state.allowed_extensions:
             # 双重保险：跳过任何包含系统目录的文件
-            if state.marked_subdir in f.parts or state.preview_subdir in f.parts:
+            if any(d in f.parts for d in
+                   (state.marked_subdir, state.preview_subdir, state.view_subdir)):
                 continue
             try:
                 rel = f.relative_to(path).as_posix()
                 photos.append({
                     'filename': rel,
                     'preview': url_for('get_preview', token=token, filename=rel),
+                    'view': url_for('get_view', token=token, filename=rel),
                     'original': url_for('get_original', token=token, filename=rel),
                     'is_raw': f.suffix.lower() in state.raw_extensions,
                 })
@@ -142,6 +144,29 @@ def get_preview(token, filename):
             return send_file(original_path)
 
     return send_file(preview_path)
+
+
+@app.route('/share/<token>/view/<path:filename>')
+@require_token('deny')
+def get_view(token, filename):
+    """查看大图(1600px)：按需生成并缓存。生成失败一律 404，前端保留小图占位。"""
+    album = g.album
+    original_path = safe_join(state.base_dir, album, filename)
+    if not original_path:
+        abort(404)
+    # 🔒 禁止借大图路由窥探系统目录
+    if _is_system_path(original_path):
+        abort(403)
+    if not original_path.exists():
+        abort(404)
+
+    view_path = safe_join(str(Path(state.base_dir) / state.view_subdir), album, filename)
+    if not view_path:
+        abort(404)
+    if not view_path.exists():
+        if not generator.generate_sync(original_path, view_path, state.view_size, state.view_quality):
+            abort(404)
+    return send_file(view_path)
 
 
 @app.route('/share/<token>/original/<path:filename>')

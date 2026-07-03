@@ -45,7 +45,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .v-header { position: absolute; top: 0; width: 100%; padding-top: env(safe-area-inset-top); display: flex; justify-content: flex-end; z-index: 202; pointer-events: none;}
 .v-close { pointer-events: auto; padding: 15px; background: none; border: none; color: #fff; opacity: 0.8; }
-.v-main { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.v-main { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+    box-sizing: border-box; padding: calc(54px + env(safe-area-inset-top)) 0 calc(60px + env(safe-area-inset-bottom)) 0; }
 .v-main img { max-width: 100%; max-height: 100%; object-fit: contain; transition: opacity 0.2s; }
 
 /* 新增：图片加载动画/进度条 */

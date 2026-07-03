@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "picshare"
-version = "0.7.2"
+version = "0.7.3"
 description = "基于 IPv6 的私有照片共享服务器(极速预览 · 智能缓存 · 安全访问)"
 readme = "README.md"
 requires-python = ">=3.10"

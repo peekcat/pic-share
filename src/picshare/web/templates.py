@@ -21,12 +21,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
     border-bottom: 0.5px solid rgba(255,255,255,0.1);
     display: flex; align-items: center; justify-content: space-between;
     padding: env(safe-area-inset-top) 10px 0 10px; height: calc(44px + env(safe-area-inset-top)); }
-.nav-btn { color: var(--accent); background: none; border: none; padding: 10px; cursor: pointer; display: flex; align-items: center; flex-shrink: 0; }
-.nav-title { flex: 1; min-width: 0; text-align: center; font-weight: 600; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
+.nav-btn { color: var(--accent); background: none; border: none; padding: 10px; cursor: pointer; display: flex; align-items: center; white-space: nowrap; }
+/* 三栏导航：左右等宽，标题按内容宽度钉在正中，右侧变宽也不挪动标题 */
+.nav-side { flex: 1 1 0; display: flex; align-items: center; min-width: 0; }
+.nav-title { flex: 0 1 auto; min-width: 0; text-align: center; font-weight: 600; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
 /* 选片汇总 */
-.sel-summary { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.sel-summary { justify-content: flex-end; gap: 8px; }
 .sel-count { font-size: 13px; color: rgba(255,255,255,0.6); white-space: nowrap; }
-.sel-count.has { color: #FFD700; font-weight: 600; }
+.sel-count.has { color: #FFD700; font-weight: 600; cursor: pointer; }
+.sel-count.filtering { color: #000; background: #FFD700; padding: 3px 10px; border-radius: 12px; }
 .sel-clear { display: none; background: none; border: none; color: var(--accent); font-size: 13px; padding: 8px 4px; cursor: pointer; }
 .sel-clear.show { display: inline; }
 
@@ -112,17 +115,19 @@ ALBUM_TEMPLATE = '''
 </head>
 <body>
     <div class="navbar">
-        <a href="/" class="nav-btn">''' + ICONS['back'] + '''&nbsp;返回</a>
+        <div class="nav-side nav-left">
+            <a href="/" class="nav-btn">''' + ICONS['back'] + '''&nbsp;返回</a>
+        </div>
         <div class="nav-title">{{ album_name }}</div>
-        <div class="sel-summary">
-            <span class="sel-count" id="sel-count">已选 0</span>
+        <div class="nav-side sel-summary">
+            <span class="sel-count" id="sel-count" onclick="toggleFilter()">已选 0</span>
             <button class="sel-clear" id="sel-clear" onclick="clearSelection()">清空</button>
         </div>
     </div>
 
     <div class="grid">
         {% for photo in photos %}
-        <div class="cell" onclick="openViewer({{ loop.index0 }})">
+        <div class="cell" data-file="{{ photo.filename }}" onclick="openViewer({{ loop.index0 }})">
             <img data-src="{{ photo.preview }}" loading="lazy">
         </div>
         {% endfor %}
@@ -175,15 +180,39 @@ ALBUM_TEMPLATE = '''
         let markedState = {};
         {{ selected | tojson }}.forEach(f => { markedState[f] = true; });
         let selCount = Object.keys(markedState).length;
+        let filterOn = false;      // 是否只看已选
+        let viewList = photos;     // 看图器当前翻页所用的列表
 
         const selCountEl = document.getElementById('sel-count');
         const selClearEl = document.getElementById('sel-clear');
+        function renderSelLabel() {
+            // 筛选态下换成「只看已选 N ✕」，✕ 明确提示点此退出
+            selCountEl.textContent = filterOn ? ('只看已选 ' + selCount + '  ✕') : ('已选 ' + selCount);
+        }
         function updateSelCount() {
-            selCountEl.textContent = '已选 ' + selCount;
             selCountEl.classList.toggle('has', selCount > 0);
             selClearEl.classList.toggle('show', selCount > 0);
+            renderSelLabel();
         }
         updateSelCount();
+
+        // 「已选 N」筛选：点一下只看已收藏，再点回到全部
+        function applyFilter() {
+            if (filterOn && selCount === 0) filterOn = false;   // 无可显示则退出筛选
+            document.querySelectorAll('.cell').forEach(cell => {
+                const sel = !!markedState[cell.dataset.file];
+                cell.style.display = (!filterOn || sel) ? '' : 'none';
+            });
+            viewList = filterOn ? photos.filter(p => markedState[p.filename]) : photos;
+            selCountEl.classList.toggle('filtering', filterOn);
+            renderSelLabel();
+        }
+        function toggleFilter() {
+            if (selCount === 0 && !filterOn) return;   // 没有已选时不可进入
+            filterOn = !filterOn;
+            applyFilter();
+            window.scrollTo(0, 0);
+        }
 
         // Lazy Load Logic
         const observer = new IntersectionObserver((entries, obs) => {
@@ -215,7 +244,10 @@ ALBUM_TEMPLATE = '''
             loadingOverlay.style.display = show ? 'flex' : 'none';
         }
 
-        function openViewer(idx) {
+        function openViewer(globalIdx) {
+            // 传入的是相对完整列表的下标，映射到当前(可能已筛选的)列表
+            const idx = viewList.indexOf(photos[globalIdx]);
+            if (idx === -1) return;
             curIdx = idx;
             viewer.style.display = 'flex';
             loadPhoto();
@@ -225,6 +257,7 @@ ALBUM_TEMPLATE = '''
             viewer.style.display = 'none';
             vImg.src = '';
             showLoading(false);
+            if (filterOn) applyFilter();  // 回到网格时刷新筛选(反映期间的取消收藏)
         }
 
         function loadPhoto() {
@@ -234,19 +267,19 @@ ALBUM_TEMPLATE = '''
 
             // 加载预览图
             vImg.style.opacity = 0.3;
-            vImg.src = photos[curIdx].preview;
+            vImg.src = viewList[curIdx].preview;
             vImg.onload = () => vImg.style.opacity = 1;
 
             // [修改] 更新原图按钮状态（检查是否为 RAW）
             updateOrigUI();
 
             // 收藏状态已全量注入，直接渲染即可
-            renderMark(!!markedState[photos[curIdx].filename]);
+            renderMark(!!markedState[viewList[curIdx].filename]);
         }
 
         function next(e) {
             if(e) e.stopPropagation();
-            if(curIdx < photos.length - 1) {
+            if(curIdx < viewList.length - 1) {
                 curIdx++;
                 loadPhoto();
             }
@@ -263,7 +296,7 @@ ALBUM_TEMPLATE = '''
         function toggleOriginal(e) {
             e.stopPropagation();
             // 如果是 RAW 文件，直接忽略点击（虽然 CSS 已经禁用了 pointer-events，这里做双重保险）
-            if (photos[curIdx].is_raw) return;
+            if (viewList[curIdx].is_raw) return;
 
             const isNowOriginal = !isOrig;
             isOrig = isNowOriginal;
@@ -284,17 +317,17 @@ ALBUM_TEMPLATE = '''
                     alert('加载原图失败或文件不存在。');
                     vImg.style.opacity = 1;
                 };
-                tempImg.src = photos[curIdx].original;
+                tempImg.src = viewList[curIdx].original;
             } else {
                 showLoading(false);
-                vImg.src = photos[curIdx].preview;
+                vImg.src = viewList[curIdx].preview;
                 vImg.style.opacity = 1;
             }
         }
 
         function updateOrigUI() {
             // [新增] 检查当前图片是否为 RAW
-            const isRaw = photos[curIdx].is_raw;
+            const isRaw = viewList[curIdx].is_raw;
 
             if (isRaw) {
                 // 如果是 RAW，禁用按钮并变灰
@@ -311,7 +344,7 @@ ALBUM_TEMPLATE = '''
 
         function toggleMark(e) {
             e.stopPropagation();
-            const currentFile = photos[curIdx].filename;
+            const currentFile = viewList[curIdx].filename;
             const prevState = !!markedState[currentFile];
             const nextState = !prevState;
 
@@ -356,6 +389,7 @@ ALBUM_TEMPLATE = '''
                     markedState = {};
                     selCount = 0;
                     updateSelCount();
+                    applyFilter();  // 退出筛选并恢复全部
                     if (viewer.style.display === 'flex') renderMark(false);
                 }).catch(() => alert('网络连接错误。'));
         }

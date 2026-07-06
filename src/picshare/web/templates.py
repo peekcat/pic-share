@@ -113,17 +113,24 @@ ALBUM_TEMPLATE = '''
         pointer-events: none;
         filter: grayscale(100%);
     }
-    /* PhotoSwipe 自定义按钮：居中 + 提升对比，黑底/照片上都清晰 */
-    .pswp__button--fav, .pswp__button--orig {
-        display:flex !important; align-items:center; justify-content:center;
-        width:auto; min-width:50px; opacity:1 !important; color:#fff;
+    /* 底部操作栏：收藏 + 原图，手机拇指易触达 */
+    .pf-actionbar {
+        position:absolute; left:0; right:0; bottom:0; z-index:100;
+        display:flex; justify-content:center; gap:14px;
+        padding:12px 16px calc(14px + env(safe-area-inset-bottom));
+        pointer-events:none;
     }
-    .pswp__button--fav svg { width:26px; height:26px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
-    .pf-orig {
-        padding:6px 13px; font-size:13px; font-weight:700; color:#fff; white-space:nowrap;
-        border-radius:15px; background:rgba(0,0,0,.45);
+    .pf-act {
+        pointer-events:auto; display:inline-flex; align-items:center; gap:7px;
+        background:rgba(0,0,0,.5); color:#fff; border:none; border-radius:24px;
+        padding:11px 20px; font-size:15px; font-weight:600; cursor:pointer;
+        -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
     }
-    .pswp__button--orig.pf-on .pf-orig { background:#0A84FF; }  /* 正在看原图：蓝色高亮 */
+    .pf-act:active { transform:scale(.94); }
+    .pf-act svg { width:22px; height:22px; }
+    .pf-fav.on { color:#FFD700; }
+    .pf-fav.on svg { fill:#FFD700; stroke:#FFD700; }
+    .pf-orig-btn.on { background:#0A84FF; color:#fff; }
     /* 左右翻页箭头：桌面默认很淡、悬停才明显；触屏隐藏（用滑动翻页） */
     .pswp__button--arrow { opacity:.28 !important; transition:opacity .2s ease; }
     .pswp__button--arrow:hover { opacity:.95 !important; }
@@ -288,7 +295,7 @@ ALBUM_TEMPLATE = '''
             const idx = viewList.indexOf(photos[globalIdx]);
             if (idx === -1) return;
 
-            let favEl = null, origEl = null;
+            let favBtn = null, origBtn = null;
             pswp = new PhotoSwipe({
                 dataSource: buildSlides(),
                 index: idx,
@@ -299,14 +306,17 @@ ALBUM_TEMPLATE = '''
             });
 
             const curData = () => (pswp && pswp.currSlide ? pswp.currSlide.data : null);
-            function refreshFav() {
-                const d = curData(); if (!favEl || !d) return;
-                favEl.innerHTML = markedState[d._file] ? FAV_ON : FAV_OFF;
-            }
-            function refreshOrig() {
-                const d = curData(); if (!origEl || !d) return;
-                origEl.style.display = d._raw ? 'none' : '';
-                origEl.classList.toggle('pf-on', !!d._showOrig);   // 高亮标记"正在看原图"
+            function refreshActions() {
+                const d = curData(); if (!d) return;
+                if (favBtn) {
+                    const on = !!markedState[d._file];
+                    favBtn.classList.toggle('on', on);
+                    favBtn.querySelector('.pf-label').textContent = on ? '已收藏' : '收藏';
+                }
+                if (origBtn) {
+                    origBtn.style.display = d._raw ? 'none' : '';
+                    origBtn.classList.toggle('on', !!d._showOrig);   // 蓝色高亮"正在看原图"
+                }
             }
             function toggleOriginalView() {
                 const d = curData();
@@ -316,24 +326,26 @@ ALBUM_TEMPLATE = '''
                 d.width  = d._showOrig ? d._vw * 3 : d._vw;        // 原图放宽缩放上限
                 d.height = d._showOrig ? d._vh * 3 : d._vh;
                 try { pswp.refreshSlideContent(pswp.currIndex); } catch (err) {}
-                refreshOrig();
+                refreshActions();
             }
 
-            pswp.on('uiRegister', () => {
-                pswp.ui.registerElement({
-                    name: 'fav', order: 15, isButton: true, tagName: 'button', html: FAV_OFF,
-                    onInit: (el) => { favEl = el; el.onclick = () => { const d = curData(); if (d) toggleFav(d._file).then(refreshFav); }; }
-                });
-                pswp.ui.registerElement({
-                    name: 'orig', order: 16, isButton: true, tagName: 'button', html: '<span class="pf-orig">原图</span>',
-                    onInit: (el) => { origEl = el; el.onclick = toggleOriginalView; }
-                });
-            });
-            pswp.on('change', () => { refreshFav(); refreshOrig(); });
+            pswp.on('change', refreshActions);
             pswp.on('destroy', () => { pswp = null; hintEl = null; if (filterOn) applyFilter(); });
 
             pswp.init();
-            refreshFav(); refreshOrig();
+
+            // 底部操作栏（手机拇指易触达）：收藏 + 原图
+            const bar = document.createElement('div');
+            bar.className = 'pf-actionbar';
+            bar.innerHTML =
+                '<button class="pf-act pf-fav" type="button">' + FAV_OFF + '<span class="pf-label">收藏</span></button>' +
+                '<button class="pf-act pf-orig-btn" type="button">原图</button>';
+            pswp.element.appendChild(bar);
+            favBtn = bar.querySelector('.pf-fav');
+            origBtn = bar.querySelector('.pf-orig-btn');
+            favBtn.onclick = () => { const d = curData(); if (d) toggleFav(d._file).then(refreshActions); };
+            origBtn.onclick = toggleOriginalView;
+            refreshActions();
         }
 
         // 桌面：空格恢复默认大小（复位缩放）

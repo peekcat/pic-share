@@ -66,9 +66,11 @@ class PreviewGenerator:
 
             # [新增] 防止 Windows 下弹出黑色命令行窗口
             startupinfo = None
+            creationflags = 0
             if os.name == 'nt':
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                creationflags = subprocess.CREATE_NO_WINDOW
 
             # 3. 执行命令
             result = subprocess.run(
@@ -77,7 +79,8 @@ class PreviewGenerator:
                 text=True,
                 timeout=60,  # 增加超时时间到 60秒
                 check=False,
-                startupinfo=startupinfo  # 应用隐藏窗口设置
+                startupinfo=startupinfo,     # 隐藏窗口
+                creationflags=creationflags  # 彻底不分配控制台，杜绝闪框
             )
 
             # 4. 检查结果

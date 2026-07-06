@@ -5,6 +5,10 @@ import time
 import threading
 import subprocess
 
+# Windows 下 GUI 程序 spawn 子进程(ipconfig 等)会闪一个控制台黑框；
+# 加 CREATE_NO_WINDOW 规避。该标志仅 Windows 有，其它平台取 0（默认，无副作用）。
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+
 # IPv6 地址会变（临时地址 / 前缀更新 / 切换网络），但短时间内稳定。
 # 用「短时效缓存」避免每次「复制/生成链接」都同步 spawn 子进程卡住 UI，
 # 同时通过 TTL 让地址变化能在 _CACHE_TTL 秒内自动跟上；「刷新网络」可强制重查。
@@ -61,7 +65,7 @@ def _query_ipv6_addresses():
     try:
         if os.name == 'nt':
             result = subprocess.run(['ipconfig'], capture_output=True, text=True, encoding='gbk', errors='ignore',
-                                    check=False)
+                                    check=False, creationflags=_NO_WINDOW)
             lines = result.stdout.splitlines()
             for line in lines:
                 if 'IPv6 地址' in line:
@@ -71,10 +75,12 @@ def _query_ipv6_addresses():
                         addrs.add(ip)
         elif sys.platform == 'darwin':
             # macOS 没有 Linux 的 `ip` 命令，改用 ifconfig 解析 inet6 地址
-            result = subprocess.run(['ifconfig'], capture_output=True, text=True, check=False)
+            result = subprocess.run(['ifconfig'], capture_output=True, text=True, check=False,
+                                    creationflags=_NO_WINDOW)
             addrs |= _parse_ifconfig_ipv6(result.stdout)
         else:
-            result = subprocess.run(['ip', 'addr'], capture_output=True, text=True, check=False)
+            result = subprocess.run(['ip', 'addr'], capture_output=True, text=True, check=False,
+                                    creationflags=_NO_WINDOW)
             lines = result.stdout.splitlines()
             for line in lines:
                 if 'inet6' in line and 'global' in line:

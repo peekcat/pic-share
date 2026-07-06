@@ -237,6 +237,14 @@ ALBUM_TEMPLATE = '''
         const origBtn = document.getElementById('orig-btn');
         const loadingOverlay = document.getElementById('loading-overlay');
 
+        // 桌面键盘：←/→ 翻页，Esc 关闭回到网格（仅看图器打开时生效）
+        document.addEventListener('keydown', (e) => {
+            if (viewer.style.display !== 'flex') return;
+            if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
+            else if (e.key === 'ArrowRight') { e.preventDefault(); next(); }
+            else if (e.key === 'Escape') { e.preventDefault(); closeViewer(); }
+        });
+
         const ICONS = {
             empty: `''' + ICONS['star_empty'] + '''`,
             fill: `''' + ICONS['star_fill'] + '''`

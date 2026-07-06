@@ -105,6 +105,7 @@ ALBUM_TEMPLATE = '''
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#000000">
     <title>{{ album_name }}</title>
+    <link rel="stylesheet" href="/static/photoswipe/photoswipe.css">
     <style>''' + CSS_STYLE + '''
     /* [新增] 禁用按钮的样式 */
     .c-btn.disabled {
@@ -112,6 +113,30 @@ ALBUM_TEMPLATE = '''
         pointer-events: none;
         filter: grayscale(100%);
     }
+    /* PhotoSwipe 自定义按钮：居中 + 提升对比，黑底/照片上都清晰 */
+    .pswp__button--fav, .pswp__button--orig {
+        display:flex !important; align-items:center; justify-content:center;
+        width:auto; min-width:50px; opacity:1 !important; color:#fff;
+    }
+    .pswp__button--fav svg { width:26px; height:26px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
+    .pf-orig {
+        padding:6px 13px; font-size:13px; font-weight:700; color:#fff; white-space:nowrap;
+        border-radius:15px; background:rgba(0,0,0,.45);
+    }
+    .pswp__button--orig.pf-on .pf-orig { background:#0A84FF; }  /* 正在看原图：蓝色高亮 */
+    /* 左右翻页箭头：桌面默认很淡、悬停才明显；触屏隐藏（用滑动翻页） */
+    .pswp__button--arrow { opacity:.28 !important; transition:opacity .2s ease; }
+    .pswp__button--arrow:hover { opacity:.95 !important; }
+    @media (hover: none) { .pswp__button--arrow { display:none !important; } }
+    .pswp__button--arrow:disabled, .pswp__button--arrow:disabled:hover { opacity:.1 !important; cursor:default; }
+    /* 首/末张友好提示 */
+    .pf-hint {
+        position:absolute; left:50%; bottom:16%; transform:translateX(-50%);
+        background:rgba(0,0,0,.72); color:#fff; padding:9px 18px; border-radius:20px;
+        font-size:14px; opacity:0; transition:opacity .2s; pointer-events:none;
+        z-index:99999; white-space:nowrap;
+    }
+    .pf-hint.show { opacity:1; }
     </style>
 </head>
 <body>
@@ -134,49 +159,17 @@ ALBUM_TEMPLATE = '''
         {% endfor %}
     </div>
 
-    <div class="viewer" id="viewer">
-        <div class="v-header">
-            <button class="v-close" onclick="closeViewer()">''' + ICONS['close'] + '''</button>
-        </div>
-        <div class="v-main">
-            <img id="v-img" onclick="next()">
-        </div>
+    <!-- 看图器由 PhotoSwipe 动态创建 -->
 
-        <div class="v-loading-overlay" id="loading-overlay">
-            <div class="loader"></div>
-            <span>正在加载原图...</span>
-        </div>
+    <script type="module">
+        import PhotoSwipe from '/static/photoswipe/photoswipe.esm.min.js';
 
-        <div class="controls">
-            <button class="c-btn" onclick="prev(event)">
-                <div>''' + ICONS['prev'] + '''</div>
-                <span>上一张</span>
-            </button>
-
-            <button class="c-btn" id="mark-btn" onclick="toggleMark(event)">
-                <div id="mark-icon">''' + ICONS['star_empty'] + '''</div>
-                <span>收藏</span>
-            </button>
-
-            <button class="c-btn" id="orig-btn" onclick="toggleOriginal(event)">
-                <div id="hd-icon">''' + ICONS['hd'] + '''</div>
-                <span>原图</span>
-            </button>
-
-            <button class="c-btn" onclick="next(event)">
-                <div>''' + ICONS['next'] + '''</div>
-                <span>下一张</span>
-            </button>
-        </div>
-    </div>
-
-    <script>
         const photos = {{ photos | tojson }};
-        const albumName = "{{ album_name }}";
         const token = "{{ token }}";
-        let curIdx = 0;
-        let isOrig = false;
-        let loadViewGen = 0;   // 防止旧大图迟到后覆盖新图
+
+        // 收藏图标（复用星标）
+        const FAV_OFF = `''' + ICONS['star_empty'] + '''`;
+        const FAV_ON  = `''' + ICONS['star_fill'] + '''`;
 
         // 已选状态由服务端一次性注入，翻图无需再逐张查询
         let markedState = {};
@@ -229,181 +222,138 @@ ALBUM_TEMPLATE = '''
         }, {rootMargin: "200px"});
         document.querySelectorAll('img[data-src]').forEach(img => observer.observe(img));
 
-        // Viewer Logic
-        const viewer = document.getElementById('viewer');
-        const vImg = document.getElementById('v-img');
-        const markBtn = document.getElementById('mark-btn');
-        const markIcon = document.getElementById('mark-icon');
-        const origBtn = document.getElementById('orig-btn');
-        const loadingOverlay = document.getElementById('loading-overlay');
+        // ── 网格 cells 与 photos 同序，用于取缩略图比例 ──
+        const cells = Array.from(document.querySelectorAll('.cell'));
 
-        // 桌面键盘：←/→ 翻页，Esc 关闭回到网格（仅看图器打开时生效）
-        document.addEventListener('keydown', (e) => {
-            if (viewer.style.display !== 'flex') return;
-            if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
-            else if (e.key === 'ArrowRight') { e.preventDefault(); next(); }
-            else if (e.key === 'Escape') { e.preventDefault(); closeViewer(); }
-        });
+        // ── 收藏（乐观更新 + 服务端校正）──
+        function toggleFav(filename) {
+            const prev = !!markedState[filename];
+            const next = !prev;
+            markedState[filename] = next;
+            selCount += next ? 1 : -1;
+            updateSelCount();
+            return fetch(`/share/${token}/mark`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename })
+            }).then(r => r.json()).then(d => {
+                if (!d.success) throw new Error('fail');
+                markedState[filename] = d.is_marked;
+                if (typeof d.count === 'number') selCount = d.count;
+                updateSelCount();
+                return d.is_marked;
+            }).catch(() => {
+                markedState[filename] = prev;
+                selCount += prev ? 1 : -1;
+                updateSelCount();
+                alert('收藏操作失败，请检查网络。');
+                return prev;
+            });
+        }
 
-        const ICONS = {
-            empty: `''' + ICONS['star_empty'] + '''`,
-            fill: `''' + ICONS['star_fill'] + '''`
-        };
+        // ── 尺寸：缩略图与大图同比例，用缩略图自然尺寸 ×4 估算 1600 档；未加载回退 3:2 ──
+        function dimsFor(photo) {
+            const gi = photos.indexOf(photo);
+            const img = cells[gi] && cells[gi].querySelector('img');
+            if (img && img.naturalWidth > 0) {
+                return { w: img.naturalWidth * 4, h: img.naturalHeight * 4 };
+            }
+            return { w: 1600, h: 1067 };
+        }
+        function buildSlides() {
+            return viewList.map(p => {
+                const d = dimsFor(p);
+                return { src: p.view, msrc: p.preview, width: d.w, height: d.h,
+                         alt: p.filename, _file: p.filename, _raw: p.is_raw,
+                         _view: p.view, _orig: p.original, _vw: d.w, _vh: d.h, _showOrig: false };
+            });
+        }
 
-        function showLoading(show) {
-            loadingOverlay.style.display = show ? 'flex' : 'none';
+        // ── PhotoSwipe 看图器 ──
+        let pswp = null;
+        let hintEl = null, hintTimer = null;
+        function showEdgeHint(msg) {
+            if (!pswp || !pswp.element) return;
+            if (!hintEl || hintEl.parentNode !== pswp.element) {
+                hintEl = document.createElement('div');
+                hintEl.className = 'pf-hint';
+                pswp.element.appendChild(hintEl);
+            }
+            hintEl.textContent = msg;
+            hintEl.classList.add('show');
+            clearTimeout(hintTimer);
+            hintTimer = setTimeout(() => { if (hintEl) hintEl.classList.remove('show'); }, 1200);
         }
 
         function openViewer(globalIdx) {
-            // 传入的是相对完整列表的下标，映射到当前(可能已筛选的)列表
             const idx = viewList.indexOf(photos[globalIdx]);
             if (idx === -1) return;
-            curIdx = idx;
-            viewer.style.display = 'flex';
-            loadPhoto();
-        }
 
-        function closeViewer() {
-            viewer.style.display = 'none';
-            vImg.src = '';
-            showLoading(false);
-            if (filterOn) applyFilter();  // 回到网格时刷新筛选(反映期间的取消收藏)
-        }
-
-        function loadPhoto() {
-            // 每次切换图片，重置原图状态
-            isOrig = false;
-            showLoading(false);
-            const p = viewList[curIdx];
-
-            // 先用小图占位（网格多半已缓存，秒显）
-            vImg.onerror = null;
-            vImg.style.opacity = 0.3;
-            vImg.src = p.preview;
-            vImg.onload = () => { vImg.style.opacity = 1; };
-
-            // 后台预加载清晰大图，成功后无缝替换（迟到/失败则保留小图）
-            const gen = ++loadViewGen;
-            const hi = new Image();
-            hi.onload = () => {
-                if (gen === loadViewGen && !isOrig) {
-                    vImg.src = hi.src;
-                    vImg.style.opacity = 1;
-                }
-            };
-            hi.src = p.view;
-
-            // [修改] 更新原图按钮状态（检查是否为 RAW）
-            updateOrigUI();
-
-            // 收藏状态已全量注入，直接渲染即可
-            renderMark(!!markedState[p.filename]);
-        }
-
-        function next(e) {
-            if(e) e.stopPropagation();
-            if(curIdx < viewList.length - 1) {
-                curIdx++;
-                loadPhoto();
-            }
-        }
-
-        function prev(e) {
-            if(e) e.stopPropagation();
-            if(curIdx > 0) {
-                curIdx--;
-                loadPhoto();
-            }
-        }
-
-        function toggleOriginal(e) {
-            e.stopPropagation();
-            // 如果是 RAW 文件，直接忽略点击（虽然 CSS 已经禁用了 pointer-events，这里做双重保险）
-            if (viewList[curIdx].is_raw) return;
-
-            const isNowOriginal = !isOrig;
-            isOrig = isNowOriginal;
-            updateOrigUI();
-
-            vImg.style.opacity = 0.5;
-
-            if (isOrig) {
-                showLoading(true);
-                const tempImg = new Image();
-                tempImg.onload = () => {
-                    showLoading(false);
-                    vImg.src = tempImg.src;
-                    vImg.style.opacity = 1;
-                };
-                tempImg.onerror = () => {
-                    showLoading(false);
-                    alert('加载原图失败或文件不存在。');
-                    vImg.style.opacity = 1;
-                };
-                tempImg.src = viewList[curIdx].original;
-            } else {
-                showLoading(false);
-                const p = viewList[curIdx];
-                vImg.onerror = () => { vImg.onerror = null; vImg.src = p.preview; };
-                vImg.src = p.view;   // 退出原图回到清晰大图，失败回退小图
-                vImg.style.opacity = 1;
-            }
-        }
-
-        function updateOrigUI() {
-            // [新增] 检查当前图片是否为 RAW
-            const isRaw = viewList[curIdx].is_raw;
-
-            if (isRaw) {
-                // 如果是 RAW，禁用按钮并变灰
-                origBtn.classList.add('disabled');
-                origBtn.classList.remove('hd-active');
-            } else {
-                // 如果是普通图片，启用按钮
-                origBtn.classList.remove('disabled');
-                // 根据是否处于查看原图模式，切换高亮颜色
-                if(isOrig) origBtn.classList.add('hd-active');
-                else origBtn.classList.remove('hd-active');
-            }
-        }
-
-        function toggleMark(e) {
-            e.stopPropagation();
-            const currentFile = viewList[curIdx].filename;
-            const prevState = !!markedState[currentFile];
-            const nextState = !prevState;
-
-            // 乐观更新
-            markedState[currentFile] = nextState;
-            selCount += nextState ? 1 : -1;
-            renderMark(nextState);
-            updateSelCount();
-
-            fetch(`/share/${token}/mark`, {
-                method:'POST', headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({filename:currentFile})
-            }).then(r=>r.json()).then(d => {
-                if(!d.success) {
-                    markedState[currentFile] = prevState;
-                    selCount += prevState ? 1 : -1;
-                    renderMark(prevState);
-                    updateSelCount();
-                    alert('收藏操作失败，请检查网络。');
-                    return;
-                }
-                // 以服务端为准校正（含并发场景下的计数）
-                markedState[currentFile] = d.is_marked;
-                if (typeof d.count === 'number') { selCount = d.count; }
-                renderMark(d.is_marked);
-                updateSelCount();
-            }).catch(() => {
-                markedState[currentFile] = prevState;
-                selCount += prevState ? 1 : -1;
-                renderMark(prevState);
-                updateSelCount();
-                alert('网络连接错误。');
+            let favEl = null, origEl = null;
+            pswp = new PhotoSwipe({
+                dataSource: buildSlides(),
+                index: idx,
+                loop: false,                     // 不首尾循环
+                bgOpacity: 1,
+                wheelToZoom: true,               // 桌面滚轮缩放
+                showHideAnimationType: 'fade',
             });
+
+            const curData = () => (pswp && pswp.currSlide ? pswp.currSlide.data : null);
+            function refreshFav() {
+                const d = curData(); if (!favEl || !d) return;
+                favEl.innerHTML = markedState[d._file] ? FAV_ON : FAV_OFF;
+            }
+            function refreshOrig() {
+                const d = curData(); if (!origEl || !d) return;
+                origEl.style.display = d._raw ? 'none' : '';
+                origEl.classList.toggle('pf-on', !!d._showOrig);   // 高亮标记"正在看原图"
+            }
+            function toggleOriginalView() {
+                const d = curData();
+                if (!d || d._raw) return;
+                d._showOrig = !d._showOrig;
+                d.src    = d._showOrig ? d._orig : d._view;
+                d.width  = d._showOrig ? d._vw * 3 : d._vw;        // 原图放宽缩放上限
+                d.height = d._showOrig ? d._vh * 3 : d._vh;
+                try { pswp.refreshSlideContent(pswp.currIndex); } catch (err) {}
+                refreshOrig();
+            }
+
+            pswp.on('uiRegister', () => {
+                pswp.ui.registerElement({
+                    name: 'fav', order: 15, isButton: true, tagName: 'button', html: FAV_OFF,
+                    onInit: (el) => { favEl = el; el.onclick = () => { const d = curData(); if (d) toggleFav(d._file).then(refreshFav); }; }
+                });
+                pswp.ui.registerElement({
+                    name: 'orig', order: 16, isButton: true, tagName: 'button', html: '<span class="pf-orig">原图</span>',
+                    onInit: (el) => { origEl = el; el.onclick = toggleOriginalView; }
+                });
+            });
+            pswp.on('change', () => { refreshFav(); refreshOrig(); });
+            pswp.on('destroy', () => { pswp = null; hintEl = null; if (filterOn) applyFilter(); });
+
+            pswp.init();
+            refreshFav(); refreshOrig();
         }
+
+        // 桌面：空格恢复默认大小（复位缩放）
+        document.addEventListener('keydown', (e) => {
+            if (!pswp || !pswp.isOpen) return;
+            if (e.code === 'Space') {
+                e.preventDefault();
+                const s = pswp.currSlide;
+                if (s && s.zoomLevels) s.zoomTo(s.zoomLevels.initial, undefined, 333);
+                return;
+            }
+            const last = pswp.getNumItems() - 1;
+            if (e.key === 'ArrowLeft' && pswp.currIndex === 0) showEdgeHint('前面没有更多了');
+            else if (e.key === 'ArrowRight' && pswp.currIndex === last) showEdgeHint('后面没有更多了');
+        });
+
+        // 供 HTML onclick 调用（module 作用域需显式挂到 window）
+        window.openViewer = openViewer;
+        window.toggleFilter = toggleFilter;
+        window.clearSelection = clearSelection;
 
         function clearSelection() {
             if (selCount === 0) return;
@@ -415,15 +365,9 @@ ALBUM_TEMPLATE = '''
                     selCount = 0;
                     updateSelCount();
                     applyFilter();  // 退出筛选并恢复全部
-                    if (viewer.style.display === 'flex') renderMark(false);
                 }).catch(() => alert('网络连接错误。'));
         }
 
-        function renderMark(isMarked) {
-            markIcon.innerHTML = isMarked ? ICONS.fill : ICONS.empty;
-            if(isMarked) markBtn.classList.add('active');
-            else markBtn.classList.remove('active');
-        }
     </script>
 </body>
 </html>

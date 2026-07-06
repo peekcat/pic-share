@@ -19,6 +19,12 @@ from PyInstaller.utils.hooks import collect_all
 # 需连同数据/隐藏导入一并收集，否则打包后窗口起不来
 datas, binaries, hiddenimports = collect_all("webview")
 
+# 本地内置的 PhotoSwipe 静态资源（离线使用），打进包内的 picshare/web/static
+datas += [
+    ("src/picshare/web/static/photoswipe/photoswipe.esm.min.js", "picshare/web/static/photoswipe"),
+    ("src/picshare/web/static/photoswipe/photoswipe.css", "picshare/web/static/photoswipe"),
+]
+
 a = Analysis(
     ["packaging/launcher.py"],
     pathex=["src"],

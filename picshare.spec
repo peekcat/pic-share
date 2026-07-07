@@ -25,6 +25,20 @@ datas += [
     ("src/picshare/web/static/photoswipe/photoswipe.css", "picshare/web/static/photoswipe"),
 ]
 
+# Windows 上 pywebview 通过 pythonnet/clr（.NET 桥）启动窗口。PyInstaller 常漏收其
+# 原生运行时（clr_loader 的 ClrLoader.dll、pythonnet 的 Python.Runtime.dll 等），
+# 导致运行时报 "Failed to resolve Python.Runtime.Loader.Initialize"。这里显式全量收集。
+# 非 Windows 平台未安装这些包，collect_all 会抛错，忽略即可。
+for _pkg in ("clr_loader", "pythonnet"):
+    try:
+        _d, _b, _h = collect_all(_pkg)
+        datas += _d
+        binaries += _b
+        hiddenimports += _h
+    except Exception:
+        pass
+hiddenimports += ["clr"]
+
 a = Analysis(
     ["packaging/launcher.py"],
     pathex=["src"],

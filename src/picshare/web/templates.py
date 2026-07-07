@@ -214,9 +214,12 @@ ALBUM_TEMPLATE = '''
         function buildSlides() {
             return viewList.map(p => {
                 const d = dimsFor(p);
+                // RAW 没有可看的真原图：按钮切到「高清」(hd, 按需生成的更大 JPEG)；
+                // 非 RAW 保持「原图」(original, 真实原始文件)。
                 return { src: p.view, msrc: p.preview, width: d.w, height: d.h,
                          alt: p.filename, _file: p.filename, _raw: p.is_raw,
-                         _view: p.view, _orig: p.original, _vw: d.w, _vh: d.h, _showOrig: false };
+                         _view: p.view, _orig: p.is_raw ? p.hd : p.original,
+                         _vw: d.w, _vh: d.h, _showOrig: false };
             });
         }
 
@@ -259,16 +262,17 @@ ALBUM_TEMPLATE = '''
                     favBtn.querySelector('.pf-label').textContent = on ? '已收藏' : '收藏';
                 }
                 if (origBtn) {
-                    origBtn.style.display = d._raw ? 'none' : '';
-                    origBtn.classList.toggle('on', !!d._showOrig);   // 蓝色高亮"正在看原图"
+                    // RAW 不再隐藏该按钮：改显示「高清」（按需生成的更大 JPEG，非真原图）
+                    origBtn.textContent = d._showOrig ? '取消' + (d._raw ? '高清' : '原图') : (d._raw ? '高清' : '原图');
+                    origBtn.classList.toggle('on', !!d._showOrig);   // 蓝色高亮"正在看高清/原图"
                 }
             }
             function toggleOriginalView() {
                 const d = curData();
-                if (!d || d._raw) return;
+                if (!d) return;
                 d._showOrig = !d._showOrig;
                 d.src    = d._showOrig ? d._orig : d._view;
-                d.width  = d._showOrig ? d._vw * 3 : d._vw;        // 原图放宽缩放上限
+                d.width  = d._showOrig ? d._vw * 3 : d._vw;        // 放宽缩放上限（高清/原图更大）
                 d.height = d._showOrig ? d._vh * 3 : d._vh;
                 try { pswp.refreshSlideContent(pswp.currIndex); } catch (err) {}
                 refreshActions();
@@ -279,7 +283,8 @@ ALBUM_TEMPLATE = '''
 
             pswp.init();
 
-            // 底部操作栏（手机拇指易触达）：收藏 + 原图
+            // 底部操作栏（手机拇指易触达）：收藏 + 高清/原图（RAW 显示「高清」，普通图显示「原图」，
+            // 由 refreshActions() 立即改写，这里的初始文案仅占位）
             const bar = document.createElement('div');
             bar.className = 'pf-actionbar';
             bar.innerHTML =

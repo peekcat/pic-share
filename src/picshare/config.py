@@ -9,6 +9,7 @@ class ServerState:
         self.base_dir = settings.get("base_dir") or ""
         self.preview_subdir = "._preview_ipv6_opt"   # 网格缩略图缓存（小图）
         self.view_subdir = "._view_ipv6_opt"         # 查看大图缓存（按需生成）
+        self.hd_subdir = "._hd_ipv6_opt"             # RAW「高清」缓存（按需生成，替代原图）
         self.marked_subdir = "被标记的照片"
         # 访问 token 存储文件（相对根目录），由桌面端管理、Web 端只读校验
         self.token_file = "._access_tokens.json"
@@ -20,9 +21,13 @@ class ServerState:
         self.thumb_quality = 65
         self.view_size = (1600, 1600)    # 查看大图：满屏清晰，按需单张生成
         self.view_quality = 80
+        # RAW 不能给真原图(容器浏览器打不开、体积也大)，改为客户主动点「高清」时
+        # 才按需生成的更大尺寸 JPEG——比 view 更清晰，又远小于原始 RAW 文件。
+        self.hd_size = (2800, 2800)
+        self.hd_quality = 82
         self.port = 5000
 
-        # 定义 RAW 扩展名 (这些文件将被禁止查看原图)
+        # 定义 RAW 扩展名（这些文件禁止下载真原图，改为可按需查看「高清」衍生 JPEG）
         self.raw_extensions = {
             '.cr2', '.cr3', '.nef', '.arw', '.dng', '.orf', '.rw2', '.pef', '.sr2'
         }

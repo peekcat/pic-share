@@ -72,16 +72,22 @@ python -m picshare
 ```
 src/picshare/
 ├── __main__.py        # python -m picshare 入口
-├── config.py          # ServerState 配置、扩展名集合
-├── status.py          # 状态广播（GUI 与后台模块解耦点）
-├── paths.py           # safe_join 路径安全工具
+├── desktop.py         # 桌面入口：pywebview 管理窗口 + waitress 对外服务
+├── config.py          # ServerState 配置、扩展名、缓存/数据目录
+├── settings.py        # 用户级配置持久化（记住根目录等）
+├── status.py          # 统一日志（logging → 控制台 / 文件 / 运行日志面板）
 ├── network.py         # IPv6 地址检测（Windows / macOS / Linux）
-├── preview.py         # 缩略图 / RAW 预览生成
+├── paths.py           # safe_join 路径安全工具
+├── preview.py         # 缩略图 / 大图 / RAW 高清生成（rawpy 兜底 + 缓存版本戳）
 ├── tokens.py          # 访问 token 存储与校验（能力 URL）
-├── gui.py             # Tkinter 控制面板 + 访问管理 + 程序入口 main()
-└── web/
+├── selections.py      # 客户选片清单存储
+├── admin/             # 管理端（pywebview，进程内 js_api，无对外 HTTP 端点）
+│   ├── api.py         # 暴露给管理网页的 Python API
+│   └── templates.py   # 管理端单页 HTML（相册卡片 / 分享 / 运行日志）
+└── web/               # 对外 Web 服务（客户端 /share 访问）
     ├── app.py         # Flask app 与 token 作用域路由
-    └── templates.py   # 内嵌 HTML / CSS / SVG 图标
+    ├── templates.py   # 相册页 / 落地页 / 口令页模板
+    └── static/photoswipe/   # 内置 PhotoSwipe 看图器（离线）
 ```
 
 ## 安全提示 / Security Note

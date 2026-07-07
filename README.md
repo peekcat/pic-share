@@ -3,9 +3,6 @@
 This is a client photo selection and delivery system designed specifically for photographers. Through a modern web album, clients can browse, mark favorite photos online, and download originals, completely eliminating the compression and inefficiency of WeChat file transfers.
 这是一款专为摄影师设计的客户选片交付系统。通过现代化的网页相册，让客户在线浏览、标记心仪照片，支持原图下载，彻底告别微信传图的压缩和低效。
 
-You need to install ImageMagick to use the RAW preview function of this software.
-你需要安装 ImageMagick 才能正常使用这个软件的 RAW 预览图功能。
-
 ## 核心功能 / Key Features
 
 - **专业选片体验**：仿 iOS 风格的现代化界面，提升品牌形象
@@ -26,10 +23,6 @@ You need to install ImageMagick to use the RAW preview function of this software
 ```bash
 pip install -e .
 ```
-
-可选依赖：RAW 文件转码需要系统安装 [ImageMagick](https://imagemagick.org)
-（命令行 `magick` 需在 PATH 中）。
-
 ### 系统运行时（桌面窗口）/ Desktop runtime
 
 桌面管理界面基于 [pywebview](https://pywebview.flowrene.org/)，使用各平台自带的系统 WebView：
@@ -69,7 +62,7 @@ python -m picshare
   客户在网页手动输入一次即可。
 - 可为链接设置**有效期**（3 / 7 / 14 天，默认 3 天，到期自动失效）。
 - 在桌面端可随时**撤销**某条链接，或重新复制其链接 / 口令。
-- token 与口令（若设）存储于 `<根目录>/._access_tokens.json`（本机隐藏文件，便于随时
+- token 与口令（若设）存储于 `<根目录>/._picshare/tokens.json`（本机隐藏文件，便于随时
   重发），由桌面端管理，Web 端只读校验。
 
 ## 目录结构 / Project Layout

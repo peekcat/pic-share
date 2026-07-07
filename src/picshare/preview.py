@@ -133,7 +133,7 @@ class PreviewGenerator:
 
         绝大多数 RAW（CR2/CR3/NEF/ARW/DNG…）都内嵌了一张大尺寸(常为全尺寸或 ~2K)的
         JPEG 预览。这里纯 Python 扫描文件里所有 JPEG 段、取尺寸最大的一张：既得到清晰
-        大图，又完全不依赖 ImageMagick。找不到返回 None。
+        大图，又完全不依赖任何外部解码程序。找不到返回 None。
         """
         try:
             data = image_path.read_bytes()

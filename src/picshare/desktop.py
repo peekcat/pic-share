@@ -25,7 +25,7 @@ def _serve_app(port):
 def main():
     status.setup_logging(settings.log_file())  # 统一日志：控制台 + 滚动文件 + 运行日志面板
     api = Api()
-    status.set_gui_sink(api.log)  # 后端日志（含 ImageMagick 报错）汇入管理窗口运行日志
+    status.set_gui_sink(api.log)  # 后端日志（含 RAW 解码报错等）汇入管理窗口运行日志
 
     # 启动对外 Web 服务（守护线程，随主程序退出）
     threading.Thread(target=_serve_app, args=(state.port,), daemon=True).start()

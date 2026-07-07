@@ -1,5 +1,6 @@
 import os
 import time
+import shutil
 import struct
 import tempfile
 import subprocess
@@ -15,6 +16,15 @@ from .config import state
 from .status import update_global_status
 
 logger = logging.getLogger(__name__)
+
+# 缓存生成逻辑版本：改动「生成算法」(RAW 提取方式 / 方向 / 编码逻辑等)时 +1，
+# 使旧缓存自动失效重建，无需手动删缓存目录。
+CACHE_GEN_VERSION = 1
+
+
+def _cache_signature(size, quality) -> str:
+    """缓存版本签名：生成逻辑版本 + 尺寸 + 质量。任一变化都应让旧缓存失效。"""
+    return f"g{CACHE_GEN_VERSION}-{size[0]}x{size[1]}q{quality}"
 
 
 def _tiff_orientation(data: bytes):
@@ -251,9 +261,48 @@ class PreviewGenerator:
             logger.error(f"生成预览图最终失败: {original_path} \n原因: {e}")
             return False
 
+    @staticmethod
+    def _reset_if_stale(cache_dir: Path, sig: str) -> bool:
+        """缓存目录的版本戳与 sig 不符时，清空目录并写入新戳；返回是否清理过。"""
+        marker = cache_dir / ".cachever"
+        try:
+            current = marker.read_text(encoding="utf-8") if marker.exists() else ""
+        except Exception:
+            current = ""
+        if current == sig:
+            return False
+        if cache_dir.exists():
+            try:
+                shutil.rmtree(cache_dir)
+            except Exception:
+                pass
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            marker.write_text(sig, encoding="utf-8")
+        except Exception:
+            pass
+        logger.info(f"缓存逻辑/参数变更，已清理重置：{cache_dir.name}（{sig}）")
+        return True
+
+    def ensure_cache_current(self, root_path: Path):
+        """比对两级缓存目录的版本戳；参数或生成逻辑变更时清掉对应目录以便重建。
+
+        仅在启动 / 切换根目录时(scan_all 入口)调用一次，不在请求路径上。
+        """
+        wiped = False
+        for subdir, size, quality in (
+            (state.preview_subdir, state.thumb_size, state.thumb_quality),   # 网格小图
+            (state.view_subdir, state.view_size, state.view_quality),        # 查看大图
+        ):
+            if self._reset_if_stale(root_path / subdir, _cache_signature(size, quality)):
+                wiped = True
+        if wiped:
+            self.scanned_files.clear()   # 已清缓存，强制重新扫描生成
+
     def scan_all(self, root_path: Path):
         if not root_path.exists():
             return
+        self.ensure_cache_current(root_path)
         update_global_status("⏳ 正在后台预热缩略图...")
         futures = []
         try:

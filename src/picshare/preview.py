@@ -279,8 +279,7 @@ class PreviewGenerator:
         try:
             for item in root_path.iterdir():
                 # 跳过系统文件夹
-                if item.name in (state.marked_subdir, state.preview_subdir,
-                                 state.view_subdir, state.hd_subdir):
+                if item.name in state.system_subdirs:
                     continue
 
                 if item.is_dir():
@@ -290,9 +289,7 @@ class PreviewGenerator:
                         if file_path.suffix.lower() not in state.allowed_extensions:
                             continue
                         # 防御性检查
-                        if any(d in file_path.parts for d in
-                               (state.marked_subdir, state.preview_subdir,
-                                state.view_subdir, state.hd_subdir)):
+                        if any(d in file_path.parts for d in state.system_subdirs):
                             continue
 
                         try:

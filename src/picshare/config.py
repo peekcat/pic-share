@@ -11,6 +11,10 @@ class ServerState:
         self.view_subdir = "._view_ipv6_opt"         # 查看大图缓存（按需生成）
         self.hd_subdir = "._hd_ipv6_opt"             # RAW「高清」缓存（按需生成，替代原图）
         self.marked_subdir = "被标记的照片"
+        # 所有系统/缓存子目录：列相册、算张数、文件路由访问控制都统一跳过它们。
+        # 集中定义，避免新增缓存目录时到处漏改。
+        self.system_subdirs = (self.marked_subdir, self.preview_subdir,
+                               self.view_subdir, self.hd_subdir)
         # 访问 token 存储文件（相对根目录），由桌面端管理、Web 端只读校验
         self.token_file = "._access_tokens.json"
         # 客户选片清单（相对根目录），Web 端读写、桌面端导出时读取

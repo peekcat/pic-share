@@ -40,8 +40,7 @@ def _is_system_path(resolved: Path) -> bool:
         rel = resolved.relative_to(Path(state.base_dir).resolve())
     except ValueError:
         return False
-    forbidden = (state.marked_subdir, state.preview_subdir, state.view_subdir, state.hd_subdir)
-    return any(part in forbidden for part in rel.parts)
+    return any(part in state.system_subdirs for part in rel.parts)
 
 
 def _is_unlocked(token: str) -> bool:
@@ -103,8 +102,7 @@ def album_view(token):
     for f in path.rglob("*"):
         if f.is_file() and f.suffix.lower() in state.allowed_extensions:
             # 双重保险：跳过任何包含系统目录的文件
-            if any(d in f.parts for d in
-                   (state.marked_subdir, state.preview_subdir, state.view_subdir, state.hd_subdir)):
+            if any(d in f.parts for d in state.system_subdirs):
                 continue
             try:
                 rel = f.relative_to(path).as_posix()

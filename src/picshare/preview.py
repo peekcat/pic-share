@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from io import BytesIO
 
-from PIL import Image, ImageOps, ExifTags, JpegImagePlugin
+from PIL import Image, ImageOps
 
 from .config import state
 from .status import update_global_status
@@ -117,26 +117,41 @@ class PreviewGenerator:
                     pass
 
     @staticmethod
-    def extract_embedded_thumbnail(image_path: Path) -> Image.Image | None:
-        """尝试从 RAW 文件中提取内嵌的 JPEG 缩略图"""
+    def extract_embedded_preview(image_path: Path) -> Image.Image | None:
+        """提取 RAW 内嵌的「最大」JPEG 预览。
+
+        绝大多数 RAW（CR2/CR3/NEF/ARW/DNG…）都内嵌了一张大尺寸(常为全尺寸或 ~2K)的
+        JPEG 预览。这里纯 Python 扫描文件里所有 JPEG 段、取尺寸最大的一张：既得到清晰
+        大图，又完全不依赖 ImageMagick。找不到返回 None。
+        """
         try:
-            with open(image_path, 'rb') as f:
-                img = JpegImagePlugin.JpegImageFile(f)
-                exif = img.getexif()
-                if exif:
-                    for tag, value in exif.items():
-                        if ExifTags.TAGS.get(tag) == 'JPEGInterchangeFormat':
-                            offset = value
-                            length_tag = next(
-                                (k for k, v in ExifTags.TAGS.items() if v == 'JPEGInterchangeFormatLength'), None)
-                            length = exif.get(length_tag, 0) if length_tag else 0
-                            if offset and length:
-                                f.seek(offset)
-                                thumbnail_data = f.read(length)
-                                return Image.open(BytesIO(thumbnail_data))
+            data = image_path.read_bytes()
         except Exception:
-            pass
-        return None
+            return None
+        candidates = []   # (面积, 偏移)
+        pos = 0
+        while True:
+            i = data.find(b'\xff\xd8\xff', pos)   # JPEG 起始标记 SOI
+            if i == -1:
+                break
+            pos = i + 3
+            try:
+                # 只读图头拿尺寸：给一段足够含 SOF 的窗口即可，避免整份拷贝
+                with Image.open(BytesIO(data[i:i + 262144])) as im:
+                    candidates.append((im.size[0] * im.size[1], i))
+            except Exception:
+                continue
+        if not candidates:
+            return None
+        candidates.sort(reverse=True)             # 取最大的一张
+        off = candidates[0][1]
+        end = min(len(data), off + 32 * 1024 * 1024)   # 上界 32MB，足够任何内嵌 JPEG
+        try:
+            with Image.open(BytesIO(data[off:end])) as im:
+                im.load()
+                return im.copy()
+        except Exception:
+            return None
 
     def generate_sync(self, original_path: Path, preview_path: Path, size=None, quality=None):
         """
@@ -157,10 +172,10 @@ class PreviewGenerator:
 
             is_raw = original_path.suffix.lower() in state.raw_extensions
 
-            # [尝试 1] RAW 优先提取内嵌 JPEG 预览：绝大多数 RAW 都内嵌了够大的预览，
-            # 命中即可避免昂贵的全图解码 / 拉起 magick 子进程（Windows 上 spawn 很贵）
+            # [尝试 1] RAW 优先提取内嵌的「最大」JPEG 预览：绝大多数 RAW 都内嵌了大预览，
+            # 命中即可得到清晰大图，且完全不依赖 ImageMagick（Windows 上尤其省事）
             if is_raw:
-                img = self.extract_embedded_thumbnail(original_path)
+                img = self.extract_embedded_preview(original_path)
 
             # [尝试 2] 普通图片（或 RAW 无内嵌预览）用 PIL 打开
             if img is None:

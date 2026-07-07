@@ -1,3 +1,4 @@
+import sys
 import secrets
 from functools import wraps
 from pathlib import Path
@@ -12,7 +13,13 @@ from ..status import update_global_status
 from .. import tokens, selections
 from .templates import ALBUM_TEMPLATE, LANDING_TEMPLATE, PASSCODE_TEMPLATE
 
-app = Flask(__name__)
+# 静态资源(内置 PhotoSwipe)目录：打包后从 _MEIPASS 取，源码运行取模块同级 static/
+if getattr(sys, "frozen", False):
+    _STATIC_FOLDER = str(Path(sys._MEIPASS) / "picshare" / "web" / "static")
+else:
+    _STATIC_FOLDER = str(Path(__file__).resolve().parent / "static")
+
+app = Flask(__name__, static_folder=_STATIC_FOLDER)
 # 会话密钥用于「口令已解锁」状态；进程级随机，重启后客户需重新输入口令
 app.secret_key = secrets.token_hex(32)
 

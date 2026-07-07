@@ -64,10 +64,6 @@ class Api:
             self._logs.append({"time": datetime.now().strftime("%H:%M:%S"), "msg": msg})
             del self._logs[:-200]  # 最多保留 200 条
 
-    # status.gui_app 适配：后端模块通过 update_global_status -> update_status 上报
-    def update_status(self, msg):
-        self.log(msg)
-
     def get_logs(self):
         with self._log_lock:
             return list(self._logs)

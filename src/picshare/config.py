@@ -1,5 +1,3 @@
-import logging
-
 from . import settings
 
 # ====== 0. 全局变量 & 配置 (不变) ======
@@ -36,5 +34,3 @@ class ServerState:
 
 
 state = ServerState()
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', encoding='utf-8')

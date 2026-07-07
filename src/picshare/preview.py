@@ -1,5 +1,7 @@
 import os
 import time
+import shutil
+import struct
 import tempfile
 import subprocess
 import logging
@@ -8,12 +10,42 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from io import BytesIO
 
-from PIL import Image, ImageOps, ExifTags, JpegImagePlugin
+from PIL import Image, ImageOps
 
 from .config import state
 from .status import update_global_status
 
 logger = logging.getLogger(__name__)
+
+# 缓存生成逻辑版本：改动「生成算法」(RAW 提取方式 / 方向 / 编码逻辑等)时 +1，
+# 使旧缓存自动失效重建，无需手动删缓存目录。
+CACHE_GEN_VERSION = 1
+
+
+def _cache_signature(size, quality) -> str:
+    """缓存版本签名：生成逻辑版本 + 尺寸 + 质量。任一变化都应让旧缓存失效。"""
+    return f"g{CACHE_GEN_VERSION}-{size[0]}x{size[1]}q{quality}"
+
+
+def _tiff_orientation(data: bytes):
+    """从 TIFF 系 RAW(CR2/NEF/ARW/DNG/ORF/RW2/PEF/SR2)的头部 IFD0 读 Orientation(0x0112)。
+
+    RAW 的方向常记在主 EXIF 而非内嵌预览里。非 TIFF(如 CR3)或解析失败返回 None。
+    """
+    try:
+        bo = '<' if data[:2] == b'II' else '>' if data[:2] == b'MM' else None
+        if bo is None:
+            return None
+        ifd_off = struct.unpack(bo + 'I', data[4:8])[0]
+        count = struct.unpack(bo + 'H', data[ifd_off:ifd_off + 2])[0]
+        for i in range(count):
+            e = ifd_off + 2 + i * 12
+            tag = struct.unpack(bo + 'H', data[e:e + 2])[0]
+            if tag == 0x0112:                                  # Orientation
+                return struct.unpack(bo + 'H', data[e + 8:e + 10])[0]
+    except Exception:
+        return None
+    return None
 
 
 def _temp_path(final: Path) -> Path:
@@ -62,7 +94,7 @@ class PreviewGenerator:
                 f"JPG:{str(tmp)}"
             ]
 
-            logger.info(f"⚡ 尝试用 Magick 生成: {original_path.name}")
+            logger.debug(f"⚡ 尝试用 Magick 生成: {original_path.name}")
 
             # [新增] 防止 Windows 下弹出黑色命令行窗口
             startupinfo = None
@@ -93,7 +125,7 @@ class PreviewGenerator:
             # 5. 验证临时文件有效后，原子替换为正式预览
             if tmp.exists() and tmp.stat().st_size > 1024:
                 os.replace(tmp, preview_path)
-                logger.info(f"✅ Magick 成功: {original_path.name}")
+                logger.debug(f"✅ Magick 成功: {original_path.name}")
                 return True
             else:
                 logger.warning(f"⚠️ Magick 运行成功但文件无效: {original_path.name}")
@@ -117,31 +149,56 @@ class PreviewGenerator:
                     pass
 
     @staticmethod
-    def extract_embedded_thumbnail(image_path: Path) -> Image.Image | None:
-        """尝试从 RAW 文件中提取内嵌的 JPEG 缩略图"""
+    def extract_embedded_preview(image_path: Path) -> Image.Image | None:
+        """提取 RAW 内嵌的「最大」JPEG 预览。
+
+        绝大多数 RAW（CR2/CR3/NEF/ARW/DNG…）都内嵌了一张大尺寸(常为全尺寸或 ~2K)的
+        JPEG 预览。这里纯 Python 扫描文件里所有 JPEG 段、取尺寸最大的一张：既得到清晰
+        大图，又完全不依赖 ImageMagick。找不到返回 None。
+        """
         try:
-            with open(image_path, 'rb') as f:
-                img = JpegImagePlugin.JpegImageFile(f)
-                exif = img.getexif()
-                if exif:
-                    for tag, value in exif.items():
-                        if ExifTags.TAGS.get(tag) == 'JPEGInterchangeFormat':
-                            offset = value
-                            length_tag = next(
-                                (k for k, v in ExifTags.TAGS.items() if v == 'JPEGInterchangeFormatLength'), None)
-                            length = exif.get(length_tag, 0) if length_tag else 0
-                            if offset and length:
-                                f.seek(offset)
-                                thumbnail_data = f.read(length)
-                                return Image.open(BytesIO(thumbnail_data))
+            data = image_path.read_bytes()
         except Exception:
-            pass
-        return None
+            return None
+        candidates = []   # (面积, 偏移)
+        pos = 0
+        while True:
+            i = data.find(b'\xff\xd8\xff', pos)   # JPEG 起始标记 SOI
+            if i == -1:
+                break
+            pos = i + 3
+            try:
+                # 只读图头拿尺寸：给一段足够含 SOF 的窗口即可，避免整份拷贝
+                with Image.open(BytesIO(data[i:i + 262144])) as im:
+                    candidates.append((im.size[0] * im.size[1], i))
+            except Exception:
+                continue
+        if not candidates:
+            return None
+        candidates.sort(reverse=True)             # 取最大的一张
+        off = candidates[0][1]
+        end = min(len(data), off + 32 * 1024 * 1024)   # 上界 32MB，足够任何内嵌 JPEG
+        try:
+            with Image.open(BytesIO(data[off:end])) as im:
+                im.load()
+                img = im.copy()
+        except Exception:
+            return None
+        # 方向校正：先用预览自带方向；很多 RAW 的方向在主 EXIF 里、预览不带，需补转。
+        prev_orient = img.getexif().get(0x0112, 1)
+        img = ImageOps.exif_transpose(img)
+        if prev_orient in (1, None):
+            o = _tiff_orientation(data)
+            if o in (6, 8) and img.width >= img.height:        # RAW 标注为竖、预览仍是横
+                img = img.transpose(Image.Transpose.ROTATE_270 if o == 6 else Image.Transpose.ROTATE_90)
+            elif o == 3:
+                img = img.transpose(Image.Transpose.ROTATE_180)
+        return img
 
     def generate_sync(self, original_path: Path, preview_path: Path, size=None, quality=None):
         """
         同步生成预览图逻辑：
-        1. 检查是否存在 -> 2. PIL 读取 -> 3. 提取内嵌缩略图 -> 4. ImageMagick 转码
+        1. 已存在则跳过 -> 2. RAW 提取内嵌大预览 -> 3. PIL 打开普通图 -> 4. RAW 回退 ImageMagick
 
         size/quality 缺省用网格小图参数；查看大图传入 view_size/view_quality。
         """
@@ -157,10 +214,10 @@ class PreviewGenerator:
 
             is_raw = original_path.suffix.lower() in state.raw_extensions
 
-            # [尝试 1] RAW 优先提取内嵌 JPEG 预览：绝大多数 RAW 都内嵌了够大的预览，
-            # 命中即可避免昂贵的全图解码 / 拉起 magick 子进程（Windows 上 spawn 很贵）
+            # [尝试 1] RAW 优先提取内嵌的「最大」JPEG 预览：绝大多数 RAW 都内嵌了大预览，
+            # 命中即可得到清晰大图，且完全不依赖 ImageMagick（Windows 上尤其省事）
             if is_raw:
-                img = self.extract_embedded_thumbnail(original_path)
+                img = self.extract_embedded_preview(original_path)
 
             # [尝试 2] 普通图片（或 RAW 无内嵌预览）用 PIL 打开
             if img is None:
@@ -204,9 +261,48 @@ class PreviewGenerator:
             logger.error(f"生成预览图最终失败: {original_path} \n原因: {e}")
             return False
 
+    @staticmethod
+    def _reset_if_stale(cache_dir: Path, sig: str) -> bool:
+        """缓存目录的版本戳与 sig 不符时，清空目录并写入新戳；返回是否清理过。"""
+        marker = cache_dir / ".cachever"
+        try:
+            current = marker.read_text(encoding="utf-8") if marker.exists() else ""
+        except Exception:
+            current = ""
+        if current == sig:
+            return False
+        if cache_dir.exists():
+            try:
+                shutil.rmtree(cache_dir)
+            except Exception:
+                pass
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            marker.write_text(sig, encoding="utf-8")
+        except Exception:
+            pass
+        logger.info(f"缓存逻辑/参数变更，已清理重置：{cache_dir.name}（{sig}）")
+        return True
+
+    def ensure_cache_current(self, root_path: Path):
+        """比对两级缓存目录的版本戳；参数或生成逻辑变更时清掉对应目录以便重建。
+
+        仅在启动 / 切换根目录时(scan_all 入口)调用一次，不在请求路径上。
+        """
+        wiped = False
+        for subdir, size, quality in (
+            (state.preview_subdir, state.thumb_size, state.thumb_quality),   # 网格小图
+            (state.view_subdir, state.view_size, state.view_quality),        # 查看大图
+        ):
+            if self._reset_if_stale(root_path / subdir, _cache_signature(size, quality)):
+                wiped = True
+        if wiped:
+            self.scanned_files.clear()   # 已清缓存，强制重新扫描生成
+
     def scan_all(self, root_path: Path):
         if not root_path.exists():
             return
+        self.ensure_cache_current(root_path)
         update_global_status("⏳ 正在后台预热缩略图...")
         futures = []
         try:

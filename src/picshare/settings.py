@@ -24,6 +24,11 @@ def _settings_file() -> Path:
     return _config_dir() / "settings.json"
 
 
+def log_file() -> Path:
+    """日志文件路径（与配置同目录，跨平台标准位置）。"""
+    return _config_dir() / "picshare.log"
+
+
 def load_settings() -> dict:
     try:
         with open(_settings_file(), "r", encoding="utf-8") as f:

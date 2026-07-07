@@ -14,6 +14,9 @@ dependencies = [
     "pywebview>=5.0",
     "waitress>=3.0",
     "qrcode>=7.0",
+    # Windows 上 pywebview 依赖 pythonnet（.NET 桥）。固定到稳定版，避免新版本
+    # 与 clr_loader 不匹配导致 "Failed to resolve Python.Runtime.Loader.Initialize"。
+    "pythonnet==3.0.3; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

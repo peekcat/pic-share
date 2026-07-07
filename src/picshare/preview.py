@@ -62,7 +62,7 @@ class PreviewGenerator:
                 f"JPG:{str(tmp)}"
             ]
 
-            logger.info(f"⚡ 尝试用 Magick 生成: {original_path.name}")
+            logger.debug(f"⚡ 尝试用 Magick 生成: {original_path.name}")
 
             # [新增] 防止 Windows 下弹出黑色命令行窗口
             startupinfo = None
@@ -93,7 +93,7 @@ class PreviewGenerator:
             # 5. 验证临时文件有效后，原子替换为正式预览
             if tmp.exists() and tmp.stat().st_size > 1024:
                 os.replace(tmp, preview_path)
-                logger.info(f"✅ Magick 成功: {original_path.name}")
+                logger.debug(f"✅ Magick 成功: {original_path.name}")
                 return True
             else:
                 logger.warning(f"⚠️ Magick 运行成功但文件无效: {original_path.name}")

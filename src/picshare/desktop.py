@@ -14,7 +14,7 @@ from .web.app import app
 from .preview import generator
 from .admin.api import Api
 from .admin.templates import ADMIN_HTML
-from . import status
+from . import status, settings
 
 
 def _serve_app(port):
@@ -24,8 +24,9 @@ def _serve_app(port):
 
 
 def main():
+    status.setup_logging(settings.log_file())  # 统一日志：控制台 + 滚动文件 + 运行日志面板
     api = Api()
-    status.gui_app = api  # 后端状态广播（预热进度等）汇入管理窗口日志
+    status.set_gui_sink(api.log)  # 后端日志（含 ImageMagick 报错）汇入管理窗口运行日志
 
     # 启动对外 Web 服务（守护线程，随主程序退出）
     threading.Thread(target=_serve_app, args=(state.port,), daemon=True).start()

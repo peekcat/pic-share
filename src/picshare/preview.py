@@ -1,5 +1,6 @@
 import os
 import time
+import struct
 import tempfile
 import subprocess
 import logging
@@ -14,6 +15,27 @@ from .config import state
 from .status import update_global_status
 
 logger = logging.getLogger(__name__)
+
+
+def _tiff_orientation(data: bytes):
+    """从 TIFF 系 RAW(CR2/NEF/ARW/DNG/ORF/RW2/PEF/SR2)的头部 IFD0 读 Orientation(0x0112)。
+
+    RAW 的方向常记在主 EXIF 而非内嵌预览里。非 TIFF(如 CR3)或解析失败返回 None。
+    """
+    try:
+        bo = '<' if data[:2] == b'II' else '>' if data[:2] == b'MM' else None
+        if bo is None:
+            return None
+        ifd_off = struct.unpack(bo + 'I', data[4:8])[0]
+        count = struct.unpack(bo + 'H', data[ifd_off:ifd_off + 2])[0]
+        for i in range(count):
+            e = ifd_off + 2 + i * 12
+            tag = struct.unpack(bo + 'H', data[e:e + 2])[0]
+            if tag == 0x0112:                                  # Orientation
+                return struct.unpack(bo + 'H', data[e + 8:e + 10])[0]
+    except Exception:
+        return None
+    return None
 
 
 def _temp_path(final: Path) -> Path:
@@ -149,9 +171,19 @@ class PreviewGenerator:
         try:
             with Image.open(BytesIO(data[off:end])) as im:
                 im.load()
-                return im.copy()
+                img = im.copy()
         except Exception:
             return None
+        # 方向校正：先用预览自带方向；很多 RAW 的方向在主 EXIF 里、预览不带，需补转。
+        prev_orient = img.getexif().get(0x0112, 1)
+        img = ImageOps.exif_transpose(img)
+        if prev_orient in (1, None):
+            o = _tiff_orientation(data)
+            if o in (6, 8) and img.width >= img.height:        # RAW 标注为竖、预览仍是横
+                img = img.transpose(Image.Transpose.ROTATE_270 if o == 6 else Image.Transpose.ROTATE_90)
+            elif o == 3:
+                img = img.transpose(Image.Transpose.ROTATE_180)
+        return img
 
     def generate_sync(self, original_path: Path, preview_path: Path, size=None, quality=None):
         """

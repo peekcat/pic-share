@@ -18,8 +18,7 @@ logger = logging.getLogger(__name__)
 
 # 缓存生成逻辑版本：改动「生成算法」(RAW 提取方式 / 方向 / 编码逻辑等)时 +1，
 # 使旧缓存自动失效重建，无需手动删缓存目录。
-# v2: RAW 兜底改用 rawpy(替代 ImageMagick)。
-CACHE_GEN_VERSION = 2
+CACHE_GEN_VERSION = 1
 
 
 def _cache_signature(size, quality) -> str:

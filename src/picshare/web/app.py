@@ -34,7 +34,7 @@ def add_header(response):
 def _is_system_path(resolved: Path) -> bool:
     """判断解析后的路径是否落在系统目录(标记 / 预览缓存)内。
 
-    用于在文件路由层面拦截对 ``被标记的照片`` 与 ``._preview_ipv6_opt`` 的直接访问。
+    用于在文件路由层面拦截对 ``被标记的照片`` 与 ``._picshare``(缓存/元数据) 的直接访问。
     """
     try:
         rel = resolved.relative_to(Path(state.base_dir).resolve())

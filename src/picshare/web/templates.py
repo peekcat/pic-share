@@ -5,10 +5,6 @@ ICONS = {
     'back': '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
     'star_empty': '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>',
     'star_fill': '<svg width="24" height="24" viewBox="0 0 24 24" fill="#FFD700" stroke="#FFD700" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>',
-    'hd': '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="12" y1="3" x2="12" y2="21"/><path d="M7 12h-2"/><path d="M7 15h-2"/><path d="M17 12h2"/><path d="M17 15h2"/></svg>',
-    'close': '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>',
-    'prev': '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>',
-    'next': '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>',
 }
 
 CSS_STYLE = '''
@@ -40,52 +36,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: v
 .cell img { width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.4s ease; will-change: opacity; }
 .cell img.loaded { opacity: 1; }
 
-/* 图片查看器 */
-.viewer { display: none; position: fixed; inset: 0; background: #000; z-index: 200; flex-direction: column; animation: fadeIn 0.2s ease-out; }
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-.v-header { position: absolute; top: 0; width: 100%; padding-top: env(safe-area-inset-top); display: flex; justify-content: flex-end; z-index: 202; pointer-events: none;}
-.v-close { pointer-events: auto; padding: 15px; background: none; border: none; color: #fff; opacity: 0.8; }
-.v-main { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
-    box-sizing: border-box; padding: calc(54px + env(safe-area-inset-top)) 0 calc(60px + env(safe-area-inset-bottom)) 0; }
-.v-main img { max-width: 100%; max-height: 100%; object-fit: contain; transition: opacity 0.2s; }
-
-/* 新增：图片加载动画/进度条 */
-.v-loading-overlay {
-    position: absolute;
-    inset: 0;
-    display: none; /* 默认隐藏 */
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.7);
-    z-index: 201;
-    color: white;
-    font-size: 14px;
-    flex-direction: column;
-}
-.loader {
-    border: 4px solid rgba(255, 255, 255, 0.3);
-    border-top: 4px solid #fff;
-    border-radius: 50%;
-    width: 30px;
-    height: 30px;
-    animation: spin 1s linear infinite;
-    margin-bottom: 10px;
-}
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-/* 底部控制栏 */
-.controls { position: absolute; bottom: 0; width: 100%; padding-bottom: env(safe-area-inset-bottom);
-    background: var(--bar-bg); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px);
-    border-top: 0.5px solid rgba(255,255,255,0.1);
-    display: flex; justify-content: space-around; align-items: center; height: calc(60px + env(safe-area-inset-bottom)); z-index: 202;}
-.c-btn { background: none; border: none; color: #fff; padding: 10px 10px; display: flex; flex-direction: column; align-items: center; font-size: 10px; gap: 4px; opacity: 0.7; transition: all 0.2s; }
-.c-btn:active { transform: scale(0.9); opacity: 1; }
-.c-btn svg { width: 24px; height: 24px; }
-.c-btn.active { color: #FFD700; opacity: 1; text-shadow: 0 0 10px rgba(255, 215, 0, 0.4); }
-.c-btn.hd-active { color: var(--accent); opacity: 1; }
+/* 看图器已改用 PhotoSwipe（photoswipe.css），旧自研看图器样式已删除 */
 
 /* 首页卡片 */
 .card-container { display: flex; align-items: center; justify-content: center; height: 100vh; background: #000; }
@@ -107,12 +58,6 @@ ALBUM_TEMPLATE = '''
     <title>{{ album_name }}</title>
     <link rel="stylesheet" href="/static/photoswipe/photoswipe.css">
     <style>''' + CSS_STYLE + '''
-    /* [新增] 禁用按钮的样式 */
-    .c-btn.disabled {
-        opacity: 0.2 !important;
-        pointer-events: none;
-        filter: grayscale(100%);
-    }
     /* 底部操作栏：收藏 + 原图，手机拇指易触达 */
     .pf-actionbar {
         position:absolute; left:0; right:0; bottom:0; z-index:100;

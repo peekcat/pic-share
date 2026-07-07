@@ -11,7 +11,6 @@ import webview
 
 from .config import state
 from .web.app import app
-from .preview import generator
 from .admin.api import Api
 from .admin.templates import ADMIN_HTML
 from . import status, settings

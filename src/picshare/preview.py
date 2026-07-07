@@ -188,7 +188,7 @@ class PreviewGenerator:
     def generate_sync(self, original_path: Path, preview_path: Path, size=None, quality=None):
         """
         同步生成预览图逻辑：
-        1. 检查是否存在 -> 2. PIL 读取 -> 3. 提取内嵌缩略图 -> 4. ImageMagick 转码
+        1. 已存在则跳过 -> 2. RAW 提取内嵌大预览 -> 3. PIL 打开普通图 -> 4. RAW 回退 ImageMagick
 
         size/quality 缺省用网格小图参数；查看大图传入 view_size/view_quality。
         """

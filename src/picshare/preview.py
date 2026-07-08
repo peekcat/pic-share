@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 # 缓存生成逻辑版本：改动「生成算法」(RAW 提取方式 / 方向 / 编码逻辑等)时 +1，
 # 使旧缓存自动失效重建，无需手动删缓存目录。
-CACHE_GEN_VERSION = 1
+# v2: RAW 高清档改用 rawpy 全解码（不再用偏小的内嵌预览）。
+CACHE_GEN_VERSION = 2
 
 
 def _cache_signature(size, quality) -> str:
@@ -83,21 +84,18 @@ class PreviewGenerator:
         self.scanned_files = set()
 
     @staticmethod
-    def _rawpy_image(original_path: Path) -> Image.Image | None:
-        """RAW 兜底：内嵌预览提取失败(极少数无内嵌预览的 RAW)时，用 rawpy(libraw)解码。
+    def _rawpy_image(original_path: Path, full: bool = False) -> Image.Image | None:
+        """用 rawpy(libraw)解码 RAW。惰性 import；rawpy 不可用或失败返回 None。
 
-        惰性 import：不处理 RAW 就不加载 libraw；万一 rawpy 未打进包，
-        本函数返回 None，不影响内嵌预览这条覆盖 99% RAW 的主路径。
-
-        1. 优先 raw.extract_thumb()：多数情况下也能拿到内嵌预览(比主路径更彻底地找)；
-        2. 无内嵌缩略图则 raw.postprocess() 全解码，half_size=True 半尺寸——
-           目标预览最大仅 hd_size(2800)，全尺寸传感器缩到 2800 与半尺寸缩到 2800
-           画质无差，但半尺寸解码快 4 倍、内存省 4 倍。
+        full=False（兜底）：优先取内嵌缩略图，取不到再半尺寸 postprocess——用于极少数
+            无内嵌预览的 RAW 的网格/大图兜底，够快够用即可。
+        full=True（高清档）：跳过内嵌缩略图，直接**全尺寸** postprocess 解码传感器数据，
+            拿到真正的高分辨率图。内嵌预览常只有 ~2K，撑不起 2800 高清，必须真解码。
         """
         try:
             import rawpy
         except ImportError:
-            logger.warning("rawpy 未安装，RAW 内嵌预览失败时无法兜底生成")
+            logger.warning("rawpy 未安装，RAW 无法用 libraw 解码")
             return None
 
         try:
@@ -107,21 +105,24 @@ class PreviewGenerator:
 
         try:
             with rawpy.imread(BytesIO(data)) as raw:
-                try:
-                    t = raw.extract_thumb()
-                    if t.format == rawpy.ThumbFormat.JPEG:
-                        img = Image.open(BytesIO(t.data))
-                        img.load()
-                        return _correct_raw_orientation(img, data)
-                    if t.format == rawpy.ThumbFormat.BITMAP:
-                        # libraw 已按方向摆正位图缩略图，无需再校正
-                        return Image.fromarray(t.data)
-                except (rawpy.LibRawNoThumbnailError, rawpy.LibRawUnsupportedThumbnailError):
-                    pass
+                if not full:
+                    # 兜底：先试内嵌缩略图（快）
+                    try:
+                        t = raw.extract_thumb()
+                        if t.format == rawpy.ThumbFormat.JPEG:
+                            img = Image.open(BytesIO(t.data))
+                            img.load()
+                            return _correct_raw_orientation(img, data)
+                        if t.format == rawpy.ThumbFormat.BITMAP:
+                            # libraw 已按方向摆正位图缩略图，无需再校正
+                            return Image.fromarray(t.data)
+                    except (rawpy.LibRawNoThumbnailError, rawpy.LibRawUnsupportedThumbnailError):
+                        pass
 
-                # 无内嵌缩略图：全解码兜底。libraw 按相机方向自动摆正，无需再校正。
-                logger.debug(f"⚡ rawpy 全解码兜底(无内嵌缩略图): {original_path.name}")
-                rgb = raw.postprocess(use_camera_wb=True, half_size=True)
+                # 全解码：高清档要最大分辨率用全尺寸；兜底用半尺寸更快。
+                # libraw 按相机方向自动摆正，无需再校正。
+                logger.debug(f"⚡ rawpy 解码 (full={full}): {original_path.name}")
+                rgb = raw.postprocess(use_camera_wb=True, half_size=not full)
                 return Image.fromarray(rgb)
         except Exception as e:
             logger.error(f"rawpy 解码失败: {original_path.name}\n原因: {e}")
@@ -165,13 +166,17 @@ class PreviewGenerator:
             return None
         return _correct_raw_orientation(img, data)
 
-    def generate_sync(self, original_path: Path, preview_path: Path, size=None, quality=None):
+    def generate_sync(self, original_path: Path, preview_path: Path, size=None, quality=None,
+                      raw_full=False):
         """
         同步生成预览图逻辑：
-        1. 已存在则跳过 -> 2. RAW 提取内嵌大预览 -> 3. PIL 打开普通图 -> 4. RAW 用 rawpy 兜底
+        1. 已存在则跳过 -> 2. 取图源 -> 3. 缩放保存
 
         size/quality 缺省用网格小图参数；查看大图传入 view_size/view_quality，
-        RAW「高清」传入 hd_size/hd_quality。
+        RAW「高清」传入 hd_size/hd_quality + raw_full=True。
+
+        raw_full=True（高清档）：RAW 直接用 rawpy 全解码取真实高分辨率，绕开可能
+            偏小的内嵌预览；普通图不受影响。
         """
         size = size or state.thumb_size
         quality = quality or state.thumb_quality
@@ -185,12 +190,15 @@ class PreviewGenerator:
 
             is_raw = original_path.suffix.lower() in state.raw_extensions
 
-            # [尝试 1] RAW 优先提取内嵌的「最大」JPEG 预览：绝大多数 RAW 都内嵌了大预览，
-            # 命中即可得到清晰大图，且完全不依赖任何原生解码库
-            if is_raw:
+            # [尝试 1] 取图源：
+            #   - RAW 高清档(raw_full)：rawpy 全解码取真实高分辨率（内嵌预览常偏小）
+            #   - RAW 网格/大图：内嵌「最大」JPEG 预览（快、够清晰、零依赖）
+            if is_raw and raw_full:
+                img = self._rawpy_image(original_path, full=True)
+            elif is_raw:
                 img = self.extract_embedded_preview(original_path)
 
-            # [尝试 2] 普通图片（或 RAW 无内嵌预览）用 PIL 打开
+            # [尝试 2] 普通图片（或 RAW 上面失败）用 PIL 打开
             if img is None:
                 try:
                     with Image.open(original_path) as im:
@@ -199,7 +207,7 @@ class PreviewGenerator:
                 except Exception:
                     img = None
 
-            # [尝试 3] 如果前两者都失败，且是 RAW，用 rawpy(libraw) 兜底解码
+            # [尝试 3] 如果仍失败，且是 RAW，用 rawpy(libraw) 兜底（内嵌→半尺寸）
             if img is None and is_raw:
                 img = self._rawpy_image(original_path)
 

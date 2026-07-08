@@ -25,6 +25,13 @@ datas += [
     ("src/picshare/web/static/photoswipe/photoswipe.css", "picshare/web/static/photoswipe"),
 ]
 
+# rawpy(libraw)：RAW 内嵌预览提取失败时的兜底解码，四平台都用，显式全量收集
+# 原生库，避免漏收导致运行时找不到 libraw 动态库。
+_d, _b, _h = collect_all("rawpy")
+datas += _d
+binaries += _b
+hiddenimports += _h
+
 # Windows 上 pywebview 通过 pythonnet/clr（.NET 桥）启动窗口。PyInstaller 常漏收其
 # 原生运行时（clr_loader 的 ClrLoader.dll、pythonnet 的 Python.Runtime.dll 等），
 # 导致运行时报 "Failed to resolve Python.Runtime.Loader.Initialize"。这里显式全量收集。

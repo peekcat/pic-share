@@ -34,14 +34,13 @@ def add_header(response):
 def _is_system_path(resolved: Path) -> bool:
     """判断解析后的路径是否落在系统目录(标记 / 预览缓存)内。
 
-    用于在文件路由层面拦截对 ``被标记的照片`` 与 ``._preview_ipv6_opt`` 的直接访问。
+    用于在文件路由层面拦截对 ``被标记的照片`` 与 ``._picshare``(缓存/元数据) 的直接访问。
     """
     try:
         rel = resolved.relative_to(Path(state.base_dir).resolve())
     except ValueError:
         return False
-    forbidden = (state.marked_subdir, state.preview_subdir, state.view_subdir)
-    return any(part in forbidden for part in rel.parts)
+    return any(part in state.system_subdirs for part in rel.parts)
 
 
 def _is_unlocked(token: str) -> bool:
@@ -103,17 +102,19 @@ def album_view(token):
     for f in path.rglob("*"):
         if f.is_file() and f.suffix.lower() in state.allowed_extensions:
             # 双重保险：跳过任何包含系统目录的文件
-            if any(d in f.parts for d in
-                   (state.marked_subdir, state.preview_subdir, state.view_subdir)):
+            if any(d in f.parts for d in state.system_subdirs):
                 continue
             try:
                 rel = f.relative_to(path).as_posix()
+                is_raw = f.suffix.lower() in state.raw_extensions
                 photos.append({
                     'filename': rel,
                     'preview': url_for('get_preview', token=token, filename=rel),
                     'view': url_for('get_view', token=token, filename=rel),
+                    # RAW 没有真原图可看：original 留给非 RAW；RAW 用 hd（按需生成的更大 JPEG）
                     'original': url_for('get_original', token=token, filename=rel),
-                    'is_raw': f.suffix.lower() in state.raw_extensions,
+                    'hd': url_for('get_hd', token=token, filename=rel) if is_raw else None,
+                    'is_raw': is_raw,
                 })
             except Exception:
                 continue
@@ -187,12 +188,41 @@ def get_original(token, filename):
     # 🔒 禁止直接访问系统目录(标记 / 预览缓存)
     if _is_system_path(path):
         abort(403)
-    # 🔒 RAW 文件禁止查看 / 下载原图(与前端禁用按钮保持一致，防止直接构造 URL 绕过)
+    # 🔒 RAW 文件禁止查看 / 下载真原图(容器格式浏览器打不开，也太大)：
+    # 客户端对 RAW 改走下方 get_hd 的按需「高清」衍生图，与前端隐藏该入口保持一致。
     if path.suffix.lower() in state.raw_extensions:
         abort(403)
     if not path.exists():
         abort(404)
     return send_file(path)
+
+
+@app.route('/share/<token>/hd/<path:filename>')
+@require_token('deny')
+def get_hd(token, filename):
+    """RAW「高清」：比 view 更大尺寸(默认 2800px)的按需生成 JPEG，替代无法提供的真原图。
+
+    比 1600 大图更清晰、供客户细看对焦/瑕疵；仍远小于原始 RAW 文件体积。
+    非 RAW 文件走 get_original 即可，此路由只服务 RAW。
+    """
+    album = g.album
+    original_path = safe_join(state.base_dir, album, filename)
+    if not original_path:
+        abort(404)
+    if _is_system_path(original_path):
+        abort(403)
+    if original_path.suffix.lower() not in state.raw_extensions:
+        abort(404)
+    if not original_path.exists():
+        abort(404)
+
+    hd_path = safe_join(str(Path(state.base_dir) / state.hd_subdir), album, filename)
+    if not hd_path:
+        abort(404)
+    if not hd_path.exists():
+        if not generator.generate_sync(original_path, hd_path, state.hd_size, state.hd_quality):
+            abort(404)
+    return send_file(hd_path)
 
 
 @app.route('/share/<token>/mark', methods=['POST'])

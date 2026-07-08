@@ -3,7 +3,6 @@ import time
 import shutil
 import struct
 import tempfile
-import subprocess
 import logging
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -48,6 +47,23 @@ def _tiff_orientation(data: bytes):
     return None
 
 
+def _correct_raw_orientation(img: Image.Image, raw_data: bytes) -> Image.Image:
+    """校正一张「来自 RAW 的 JPEG 预览」的方向。
+
+    先用预览自带的 EXIF 方向；很多 RAW 的方向记在主 EXIF(TIFF IFD0)而预览
+    不带，此时按 RAW 头部方向补转。供内嵌预览提取与 rawpy 缩略图两条路复用。
+    """
+    prev_orient = img.getexif().get(0x0112, 1)
+    img = ImageOps.exif_transpose(img)
+    if prev_orient in (1, None):
+        o = _tiff_orientation(raw_data)
+        if o in (6, 8) and img.width >= img.height:        # RAW 标注为竖、预览仍是横
+            img = img.transpose(Image.Transpose.ROTATE_270 if o == 6 else Image.Transpose.ROTATE_90)
+        elif o == 3:
+            img = img.transpose(Image.Transpose.ROTATE_180)
+    return img
+
+
 def _temp_path(final: Path) -> Path:
     """在目标同目录下创建唯一临时文件，用于「先写后原子替换」。
 
@@ -61,92 +77,55 @@ def _temp_path(final: Path) -> Path:
 class PreviewGenerator:
     def __init__(self):
         # 线程池用于并发扫描和生成。worker 数控制在 CPU 一半左右，
-        # 避免预热时 PIL 解码 / magick 子进程占满 CPU、抢 GIL 拖累 UI 与 Web 响应。
+        # 避免预热时 PIL/rawpy 解码占满 CPU、抢 GIL 拖累 UI 与 Web 响应。
         workers = max(2, (os.cpu_count() or 4) // 2)
         self.executor = ThreadPoolExecutor(max_workers=workers)
         self.scanned_files = set()
 
     @staticmethod
-    def generate_raw_preview_with_magick(original_path: Path, preview_path: Path, size, quality) -> bool:
+    def _rawpy_image(original_path: Path) -> Image.Image | None:
+        """RAW 兜底：内嵌预览提取失败(极少数无内嵌预览的 RAW)时，用 rawpy(libraw)解码。
+
+        惰性 import：不处理 RAW 就不加载 libraw；万一 rawpy 未打进包，
+        本函数返回 None，不影响内嵌预览这条覆盖 99% RAW 的主路径。
+
+        1. 优先 raw.extract_thumb()：多数情况下也能拿到内嵌预览(比主路径更彻底地找)；
+        2. 无内嵌缩略图则 raw.postprocess() 全解码，half_size=True 半尺寸——
+           目标预览最大仅 hd_size(2800)，全尺寸传感器缩到 2800 与半尺寸缩到 2800
+           画质无差，但半尺寸解码快 4 倍、内存省 4 倍。
         """
-        使用 ImageMagick 命令行工具 (magick) 生成 RAW 预览图。
-        修复了参数传递问题，并增加了 Windows 下隐藏黑框的处理。
-        """
-        command = 'magick'
-        tmp = None
+        try:
+            import rawpy
+        except ImportError:
+            logger.warning("rawpy 未安装，RAW 内嵌预览失败时无法兜底生成")
+            return None
 
         try:
-            # 1. 确保目标预览文件夹存在
-            preview_path.parent.mkdir(parents=True, exist_ok=True)
-            # 先写临时文件，成功后再原子替换（避免半截文件 / 并发写冲突）
-            tmp = _temp_path(preview_path)
+            data = original_path.read_bytes()
+        except Exception:
+            return None
 
-            # 2. 构造 Magick 命令
-            # -auto-orient : 根据 EXIF 自动旋转图片 (RAW文件常需要这个)
-            # -thumbnail   : 生成缩略图
-            # -quality     : JPEG 质量
-            magick_cmd = [
-                command,
-                str(original_path),
-                '-auto-orient',
-                '-thumbnail', f"{size[0]}x{size[1]}>",
-                '-quality', str(quality),
-                f"JPG:{str(tmp)}"
-            ]
-
-            logger.debug(f"⚡ 尝试用 Magick 生成: {original_path.name}")
-
-            # [新增] 防止 Windows 下弹出黑色命令行窗口
-            startupinfo = None
-            creationflags = 0
-            if os.name == 'nt':
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                creationflags = subprocess.CREATE_NO_WINDOW
-
-            # 3. 执行命令
-            result = subprocess.run(
-                magick_cmd,
-                capture_output=True,
-                text=True,
-                timeout=60,  # 增加超时时间到 60秒
-                check=False,
-                startupinfo=startupinfo,     # 隐藏窗口
-                creationflags=creationflags  # 彻底不分配控制台，杜绝闪框
-            )
-
-            # 4. 检查结果
-            if result.returncode != 0:
-                logger.error(f"❌ Magick 失败 (代码 {result.returncode}): {original_path.name}")
-                if result.stderr.strip():
-                    logger.error(f"   错误信息: {result.stderr.strip()}")
-                return False
-
-            # 5. 验证临时文件有效后，原子替换为正式预览
-            if tmp.exists() and tmp.stat().st_size > 1024:
-                os.replace(tmp, preview_path)
-                logger.debug(f"✅ Magick 成功: {original_path.name}")
-                return True
-            else:
-                logger.warning(f"⚠️ Magick 运行成功但文件无效: {original_path.name}")
-                return False
-
-        except FileNotFoundError:
-            logger.error(f"🚨 找不到命令 '{command}'。请确认 ImageMagick 已安装并添加到 PATH 环境变量。")
-            return False
-        except subprocess.TimeoutExpired:
-            logger.error(f"⏱️ Magick 处理超时: {original_path.name}")
-            return False
-        except Exception as e:
-            logger.exception(f"Magick 运行时异常: {original_path.name} - {e}")
-            return False
-        finally:
-            # 清理可能残留的临时文件（成功路径下已被 os.replace 移走）
-            if tmp is not None and tmp.exists():
+        try:
+            with rawpy.imread(BytesIO(data)) as raw:
                 try:
-                    tmp.unlink()
-                except Exception:
+                    t = raw.extract_thumb()
+                    if t.format == rawpy.ThumbFormat.JPEG:
+                        img = Image.open(BytesIO(t.data))
+                        img.load()
+                        return _correct_raw_orientation(img, data)
+                    if t.format == rawpy.ThumbFormat.BITMAP:
+                        # libraw 已按方向摆正位图缩略图，无需再校正
+                        return Image.fromarray(t.data)
+                except (rawpy.LibRawNoThumbnailError, rawpy.LibRawUnsupportedThumbnailError):
                     pass
+
+                # 无内嵌缩略图：全解码兜底。libraw 按相机方向自动摆正，无需再校正。
+                logger.debug(f"⚡ rawpy 全解码兜底(无内嵌缩略图): {original_path.name}")
+                rgb = raw.postprocess(use_camera_wb=True, half_size=True)
+                return Image.fromarray(rgb)
+        except Exception as e:
+            logger.error(f"rawpy 解码失败: {original_path.name}\n原因: {e}")
+            return None
 
     @staticmethod
     def extract_embedded_preview(image_path: Path) -> Image.Image | None:
@@ -154,7 +133,7 @@ class PreviewGenerator:
 
         绝大多数 RAW（CR2/CR3/NEF/ARW/DNG…）都内嵌了一张大尺寸(常为全尺寸或 ~2K)的
         JPEG 预览。这里纯 Python 扫描文件里所有 JPEG 段、取尺寸最大的一张：既得到清晰
-        大图，又完全不依赖 ImageMagick。找不到返回 None。
+        大图，又完全不依赖任何外部解码程序。找不到返回 None。
         """
         try:
             data = image_path.read_bytes()
@@ -184,23 +163,15 @@ class PreviewGenerator:
                 img = im.copy()
         except Exception:
             return None
-        # 方向校正：先用预览自带方向；很多 RAW 的方向在主 EXIF 里、预览不带，需补转。
-        prev_orient = img.getexif().get(0x0112, 1)
-        img = ImageOps.exif_transpose(img)
-        if prev_orient in (1, None):
-            o = _tiff_orientation(data)
-            if o in (6, 8) and img.width >= img.height:        # RAW 标注为竖、预览仍是横
-                img = img.transpose(Image.Transpose.ROTATE_270 if o == 6 else Image.Transpose.ROTATE_90)
-            elif o == 3:
-                img = img.transpose(Image.Transpose.ROTATE_180)
-        return img
+        return _correct_raw_orientation(img, data)
 
     def generate_sync(self, original_path: Path, preview_path: Path, size=None, quality=None):
         """
         同步生成预览图逻辑：
-        1. 已存在则跳过 -> 2. RAW 提取内嵌大预览 -> 3. PIL 打开普通图 -> 4. RAW 回退 ImageMagick
+        1. 已存在则跳过 -> 2. RAW 提取内嵌大预览 -> 3. PIL 打开普通图 -> 4. RAW 用 rawpy 兜底
 
-        size/quality 缺省用网格小图参数；查看大图传入 view_size/view_quality。
+        size/quality 缺省用网格小图参数；查看大图传入 view_size/view_quality，
+        RAW「高清」传入 hd_size/hd_quality。
         """
         size = size or state.thumb_size
         quality = quality or state.thumb_quality
@@ -215,7 +186,7 @@ class PreviewGenerator:
             is_raw = original_path.suffix.lower() in state.raw_extensions
 
             # [尝试 1] RAW 优先提取内嵌的「最大」JPEG 预览：绝大多数 RAW 都内嵌了大预览，
-            # 命中即可得到清晰大图，且完全不依赖 ImageMagick（Windows 上尤其省事）
+            # 命中即可得到清晰大图，且完全不依赖任何原生解码库
             if is_raw:
                 img = self.extract_embedded_preview(original_path)
 
@@ -228,11 +199,9 @@ class PreviewGenerator:
                 except Exception:
                     img = None
 
-            # [尝试 3] 如果前两者都失败，且是 RAW，调用 ImageMagick
+            # [尝试 3] 如果前两者都失败，且是 RAW，用 rawpy(libraw) 兜底解码
             if img is None and is_raw:
-                # 注意：Magick 会直接生成文件，不需要后续的 PIL save 操作
-                # 直接返回 Magick 的执行结果
-                return self.generate_raw_preview_with_magick(original_path, preview_path, size, quality)
+                img = self._rawpy_image(original_path)
 
             # 如果以上方法都无法获取图像对象，则宣告失败
             if img is None:
@@ -285,7 +254,7 @@ class PreviewGenerator:
         return True
 
     def ensure_cache_current(self, root_path: Path):
-        """比对两级缓存目录的版本戳；参数或生成逻辑变更时清掉对应目录以便重建。
+        """比对各级缓存目录的版本戳；参数或生成逻辑变更时清掉对应目录以便重建。
 
         仅在启动 / 切换根目录时(scan_all 入口)调用一次，不在请求路径上。
         """
@@ -293,6 +262,7 @@ class PreviewGenerator:
         for subdir, size, quality in (
             (state.preview_subdir, state.thumb_size, state.thumb_quality),   # 网格小图
             (state.view_subdir, state.view_size, state.view_quality),        # 查看大图
+            (state.hd_subdir, state.hd_size, state.hd_quality),              # RAW 高清
         ):
             if self._reset_if_stale(root_path / subdir, _cache_signature(size, quality)):
                 wiped = True
@@ -308,7 +278,7 @@ class PreviewGenerator:
         try:
             for item in root_path.iterdir():
                 # 跳过系统文件夹
-                if item.name in (state.marked_subdir, state.preview_subdir, state.view_subdir):
+                if item.name in state.system_subdirs:
                     continue
 
                 if item.is_dir():
@@ -318,8 +288,7 @@ class PreviewGenerator:
                         if file_path.suffix.lower() not in state.allowed_extensions:
                             continue
                         # 防御性检查
-                        if any(d in file_path.parts for d in
-                               (state.marked_subdir, state.preview_subdir, state.view_subdir)):
+                        if any(d in file_path.parts for d in state.system_subdirs):
                             continue
 
                         try:

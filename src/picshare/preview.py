@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from io import BytesIO
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFilter
 
 from .config import state
 from .status import update_global_status
@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 # 缓存生成逻辑版本：改动「生成算法」(RAW 提取方式 / 方向 / 编码逻辑等)时 +1，
 # 使旧缓存自动失效重建，无需手动删缓存目录。
-# v2: RAW 高清档改用 rawpy 全解码（不再用偏小的内嵌预览）。
-CACHE_GEN_VERSION = 2
+# v3: 高清档尺寸/质量上调 + 下采样后轻度锐化。
+CACHE_GEN_VERSION = 3
 
 
 def _cache_signature(size, quality) -> str:
@@ -167,7 +167,7 @@ class PreviewGenerator:
         return _correct_raw_orientation(img, data)
 
     def generate_sync(self, original_path: Path, preview_path: Path, size=None, quality=None,
-                      raw_full=False):
+                      raw_full=False, sharpen=False):
         """
         同步生成预览图逻辑：
         1. 已存在则跳过 -> 2. 取图源 -> 3. 缩放保存
@@ -222,6 +222,9 @@ class PreviewGenerator:
 
             # 缩放并原子保存：先写临时文件再 rename，避免半截文件 / 并发写冲突
             img.thumbnail(size, Image.Resampling.LANCZOS)
+            if sharpen:
+                # 下采样会略微发软，轻度 USM 让边缘更"实"（仅高清档用，参数偏保守）
+                img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=60, threshold=2))
             tmp = _temp_path(preview_path)
             try:
                 # 不用 optimize：对缩略图体积几乎无差，却显著拖慢编码

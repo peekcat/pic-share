@@ -28,8 +28,8 @@ class ServerState:
         self.view_quality = 80
         # RAW 不能给真原图(容器浏览器打不开、体积也大)，改为客户主动点「高清」时
         # 才按需生成的更大尺寸 JPEG——比 view 更清晰，又远小于原始 RAW 文件。
-        self.hd_size = (2800, 2800)
-        self.hd_quality = 82
+        self.hd_size = (3600, 3600)
+        self.hd_quality = 88
         self.port = 5000
 
         # 定义 RAW 扩展名（这些文件禁止下载真原图，改为可按需查看「高清」衍生 JPEG）

@@ -89,6 +89,19 @@ ALBUM_TEMPLATE = '''
         z-index:99999; white-space:nowrap;
     }
     .pf-hint.show { opacity:1; }
+    /* 生成高清时：保留当前大图，居中转圈 + 文字（覆盖层透明，不遮挡底图） */
+    .pf-hdload {
+        position:absolute; inset:0; z-index:99998; pointer-events:none;
+        display:none; flex-direction:column; align-items:center; justify-content:center; gap:12px;
+    }
+    .pf-hdload.show { display:flex; }
+    .pf-hdload .sp {
+        width:40px; height:40px; border-radius:50%;
+        border:3px solid rgba(255,255,255,.25); border-top-color:#fff;
+        animation:pf-spin .8s linear infinite;
+    }
+    .pf-hdload .tx { color:#fff; font-size:13px; background:rgba(0,0,0,.55); padding:5px 14px; border-radius:14px; }
+    @keyframes pf-spin { to { transform:rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -239,11 +252,25 @@ ALBUM_TEMPLATE = '''
             hintTimer = setTimeout(() => { if (hintEl) hintEl.classList.remove('show'); }, 1200);
         }
 
+        // 生成高清时的加载覆盖层（转圈 + 文字），保留底图不清空
+        let hdLoadEl = null;
+        function showHdLoading(show) {
+            if (!pswp || !pswp.element) return;
+            if (!hdLoadEl || hdLoadEl.parentNode !== pswp.element) {
+                hdLoadEl = document.createElement('div');
+                hdLoadEl.className = 'pf-hdload';
+                hdLoadEl.innerHTML = '<div class="sp"></div><div class="tx">正在生成高清…</div>';
+                pswp.element.appendChild(hdLoadEl);
+            }
+            hdLoadEl.classList.toggle('show', show);
+        }
+
         function openViewer(globalIdx) {
             const idx = viewList.indexOf(photos[globalIdx]);
             if (idx === -1) return;
 
             let favBtn = null, origBtn = null;
+            let hdGen = 0;   // 防止在途高清加载迟到后错误替换
             pswp = new PhotoSwipe({
                 dataSource: buildSlides(),
                 index: idx,
@@ -267,19 +294,44 @@ ALBUM_TEMPLATE = '''
                     origBtn.classList.toggle('on', !!d._showOrig);   // 蓝色高亮"正在看高清/原图"
                 }
             }
-            function toggleOriginalView() {
-                const d = curData();
-                if (!d) return;
-                d._showOrig = !d._showOrig;
-                d.src    = d._showOrig ? d._orig : d._view;
-                d.width  = d._showOrig ? d._vw * 3 : d._vw;        // 放宽缩放上限（高清/原图更大）
-                d.height = d._showOrig ? d._vh * 3 : d._vh;
+            function showView(d) {
+                d._showOrig = false;
+                d.src = d._view; d.width = d._vw; d.height = d._vh;
                 try { pswp.refreshSlideContent(pswp.currIndex); } catch (err) {}
                 refreshActions();
             }
+            function toggleOriginalView() {
+                const d = curData();
+                if (!d) return;
+                // 关闭高清/原图：切回大图（已缓存，秒切）
+                if (d._showOrig) { hdGen++; showHdLoading(false); showView(d); return; }
+                // 开启：保留当前大图不清空，转圈 + 「正在生成高清…」，后台预加载，拉到再替换
+                const gen = ++hdGen;
+                showHdLoading(true);
+                if (origBtn) { origBtn.textContent = '生成中…'; origBtn.disabled = true; }
+                const hi = new Image();
+                hi.onload = () => {
+                    if (gen !== hdGen) return;                 // 期间翻页/又点了，忽略
+                    showHdLoading(false);
+                    if (origBtn) origBtn.disabled = false;
+                    d._showOrig = true;
+                    d.src = d._orig; d.width = d._vw * 3; d.height = d._vh * 3;
+                    try { pswp.refreshSlideContent(pswp.currIndex); } catch (err) {}   // 已缓存，秒切
+                    refreshActions();
+                };
+                hi.onerror = () => {
+                    if (gen !== hdGen) return;
+                    showHdLoading(false);
+                    if (origBtn) origBtn.disabled = false;
+                    refreshActions();
+                    showEdgeHint(d._raw ? '高清加载失败' : '原图加载失败');
+                };
+                hi.src = d._orig;   // 触发服务端生成 + 下载
+            }
 
-            pswp.on('change', refreshActions);
-            pswp.on('destroy', () => { pswp = null; hintEl = null; if (filterOn) applyFilter(); });
+            // 翻页时取消在途的高清加载并收起转圈
+            pswp.on('change', () => { hdGen++; showHdLoading(false); refreshActions(); });
+            pswp.on('destroy', () => { pswp = null; hintEl = null; hdLoadEl = null; if (filterOn) applyFilter(); });
 
             pswp.init();
 

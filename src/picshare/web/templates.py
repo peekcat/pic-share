@@ -254,14 +254,15 @@ ALBUM_TEMPLATE = '''
 
         // 生成高清时的加载覆盖层（转圈 + 文字），保留底图不清空
         let hdLoadEl = null;
-        function showHdLoading(show) {
+        function showHdLoading(show, msg) {
             if (!pswp || !pswp.element) return;
             if (!hdLoadEl || hdLoadEl.parentNode !== pswp.element) {
                 hdLoadEl = document.createElement('div');
                 hdLoadEl.className = 'pf-hdload';
-                hdLoadEl.innerHTML = '<div class="sp"></div><div class="tx">正在生成高清…</div>';
+                hdLoadEl.innerHTML = '<div class="sp"></div><div class="tx"></div>';
                 pswp.element.appendChild(hdLoadEl);
             }
+            if (msg) hdLoadEl.querySelector('.tx').textContent = msg;
             hdLoadEl.classList.toggle('show', show);
         }
 
@@ -305,10 +306,10 @@ ALBUM_TEMPLATE = '''
                 if (!d) return;
                 // 关闭高清/原图：切回大图（已缓存，秒切）
                 if (d._showOrig) { hdGen++; showHdLoading(false); showView(d); return; }
-                // 开启：保留当前大图不清空，转圈 + 「正在生成高清…」，后台预加载，拉到再替换
+                // 开启：保留当前大图不清空，转圈 + 「正在加载高清…」，后台预加载，拉到再替换
                 const gen = ++hdGen;
-                showHdLoading(true);
-                if (origBtn) { origBtn.textContent = '生成中…'; origBtn.disabled = true; }
+                showHdLoading(true, d._raw ? '正在加载高清…' : '正在加载原图…');
+                if (origBtn) { origBtn.textContent = '加载中…'; origBtn.disabled = true; }
                 const hi = new Image();
                 hi.onload = () => {
                     if (gen !== hdGen) return;                 // 期间翻页/又点了，忽略

@@ -227,10 +227,10 @@ ALBUM_TEMPLATE = '''
         function buildSlides() {
             return viewList.map(p => {
                 const d = dimsFor(p);
-                // RAW 没有可看的真原图：按钮切到「高清」(hd, 按需生成的更大 JPEG)；
-                // 非 RAW 保持「原图」(original, 真实原始文件)。
+                // 「原图」入口的实际图源按类型分流：RAW 没有可看的真原图，给 hd（按需生成的
+                // 更大 JPEG）；非 RAW 给 original（真实原始文件）。UI 上统一叫「原图」。
                 return { src: p.view, msrc: p.preview, width: d.w, height: d.h,
-                         alt: p.filename, _file: p.filename, _raw: p.is_raw,
+                         alt: p.filename, _file: p.filename,
                          _view: p.view, _orig: p.is_raw ? p.hd : p.original,
                          _vw: d.w, _vh: d.h, _showOrig: false };
             });
@@ -290,9 +290,10 @@ ALBUM_TEMPLATE = '''
                     favBtn.querySelector('.pf-label').textContent = on ? '已收藏' : '收藏';
                 }
                 if (origBtn) {
-                    // RAW 不再隐藏该按钮：改显示「高清」（按需生成的更大 JPEG，非真原图）
-                    origBtn.textContent = d._showOrig ? '取消' + (d._raw ? '高清' : '原图') : (d._raw ? '高清' : '原图');
-                    origBtn.classList.toggle('on', !!d._showOrig);   // 蓝色高亮"正在看高清/原图"
+                    // 统一叫「原图」：RAW 给的其实是按需生成的更大 JPEG（非真原图），但客户不区分、
+                    // 也拿不到/看不了真 RAW，统一叫法更专业省心。
+                    origBtn.textContent = d._showOrig ? '退出原图' : '原图';
+                    origBtn.classList.toggle('on', !!d._showOrig);   // 蓝色高亮"正在看原图"
                 }
             }
             function showView(d) {
@@ -306,9 +307,9 @@ ALBUM_TEMPLATE = '''
                 if (!d) return;
                 // 关闭高清/原图：切回大图（已缓存，秒切）
                 if (d._showOrig) { hdGen++; showHdLoading(false); showView(d); return; }
-                // 开启：保留当前大图不清空，转圈 + 「正在加载高清…」，后台预加载，拉到再替换
+                // 开启：保留当前大图不清空，转圈 + 「正在加载中…」，后台预加载，拉到再替换
                 const gen = ++hdGen;
-                showHdLoading(true, d._raw ? '正在加载高清…' : '正在加载原图…');
+                showHdLoading(true, '正在加载中…');
                 if (origBtn) { origBtn.textContent = '加载中…'; origBtn.disabled = true; }
                 const hi = new Image();
                 hi.onload = () => {
@@ -325,7 +326,7 @@ ALBUM_TEMPLATE = '''
                     showHdLoading(false);
                     if (origBtn) origBtn.disabled = false;
                     refreshActions();
-                    showEdgeHint(d._raw ? '高清加载失败' : '原图加载失败');
+                    showEdgeHint('原图加载失败');
                 };
                 hi.src = d._orig;   // 触发服务端生成 + 下载
             }
@@ -336,7 +337,7 @@ ALBUM_TEMPLATE = '''
 
             pswp.init();
 
-            // 底部操作栏（手机拇指易触达）：收藏 + 高清/原图（RAW 显示「高清」，普通图显示「原图」，
+            // 底部操作栏（手机拇指易触达）：收藏 + 原图（RAW 与普通图统一显示「原图」，
             // 由 refreshActions() 立即改写，这里的初始文案仅占位）
             const bar = document.createElement('div');
             bar.className = 'pf-actionbar';

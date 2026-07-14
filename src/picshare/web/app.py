@@ -220,7 +220,9 @@ def get_hd(token, filename):
     if not hd_path:
         abort(404)
     if not hd_path.exists():
-        if not generator.generate_sync(original_path, hd_path, state.hd_size, state.hd_quality):
+        # raw_full=True：全解码取真实高分辨率；sharpen=True：下采样后轻度锐化提清晰度
+        if not generator.generate_sync(original_path, hd_path, state.hd_size,
+                                       state.hd_quality, raw_full=True, sharpen=True):
             abort(404)
     return send_file(hd_path)
 

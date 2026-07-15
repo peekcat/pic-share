@@ -296,10 +296,32 @@ ALBUM_TEMPLATE = '''
                     origBtn.classList.toggle('on', !!d._showOrig);   // 蓝色高亮"正在看原图"
                 }
             }
+            // 大图↔原图切换时保留当前缩放/平移：换图源会重建内容并回到「适应屏幕」，
+            // 这里在重建后按自然尺寸比例换算等效缩放（显示尺寸 = 自然宽 × currZoomLevel，
+            // 原图自然尺寸变大 → 缩放等比缩小），并沿用平移量，让用户停在放大的同一处。
+            function swapSlideSource(d, src, w, h) {
+                const s0 = pswp.currSlide;
+                const oldW = d.width || w;
+                const prevZoom = s0 ? s0.currZoomLevel : 0;
+                const fit = s0 && s0.zoomLevels ? s0.zoomLevels.fit : 0;
+                const wasZoomed = !!s0 && prevZoom > fit * 1.01;   // 原本就适应屏幕则不必还原
+                const px = s0 ? s0.pan.x : 0, py = s0 ? s0.pan.y : 0;
+
+                d.src = src; d.width = w; d.height = h;
+                try { pswp.refreshSlideContent(pswp.currIndex); } catch (err) { return; }
+
+                if (!wasZoomed) return;
+                try {
+                    const s = pswp.currSlide;
+                    s.calculateSize();                       // 按新自然尺寸重算 zoomLevels
+                    s.currZoomLevel = prevZoom * (oldW / w);  // 显示尺寸不变的等效缩放
+                    s.bounds.update(s.currZoomLevel);         // 按该缩放重算平移边界
+                    s.panTo(px, py);                          // 夹紧到新边界并应用（保持同一区域）
+                } catch (err) {}
+            }
             function showView(d) {
                 d._showOrig = false;
-                d.src = d._view; d.width = d._vw; d.height = d._vh;
-                try { pswp.refreshSlideContent(pswp.currIndex); } catch (err) {}
+                swapSlideSource(d, d._view, d._vw, d._vh);   // 已缓存，秒切
                 refreshActions();
             }
             function toggleOriginalView() {
@@ -317,8 +339,7 @@ ALBUM_TEMPLATE = '''
                     showHdLoading(false);
                     if (origBtn) origBtn.disabled = false;
                     d._showOrig = true;
-                    d.src = d._orig; d.width = d._vw * 3; d.height = d._vh * 3;
-                    try { pswp.refreshSlideContent(pswp.currIndex); } catch (err) {}   // 已缓存，秒切
+                    swapSlideSource(d, d._orig, d._vw * 3, d._vh * 3);   // 保留放大位置，秒切
                     refreshActions();
                 };
                 hi.onerror = () => {

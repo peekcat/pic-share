@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,9 @@ name = "picshare"
 version = "0.8.2"
 description = "基于 IPv6 的私有照片共享服务器(极速预览 · 智能缓存 · 安全访问)"
 readme = "README.md"
+# 非商业许可，非 SPDX 标准清单内，用 LicenseRef 自定义标识（PEP 639）。
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
     "Flask>=2.0",

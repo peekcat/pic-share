@@ -15,6 +15,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   .wrap { padding:16px 18px 24px; }
   h1 { font-size:19px; margin:0; }
   .subtitle { color:var(--sub); font-size:12px; margin:2px 0 14px; }
+  .ver { color:var(--sub); font-size:12px; font-weight:normal; margin-left:8px; vertical-align:middle; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:12px; }
   .label { font-weight:600; margin-bottom:8px; }
   .row { display:flex; gap:8px; align-items:center; }
@@ -109,7 +110,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
 <div class="wrap">
   <div class="topbar">
     <div>
-      <h1>IPv6 相册服务</h1>
+      <h1>IPv6 相册服务<span class="ver">v__PICSHARE_VERSION__</span></h1>
       <div class="subtitle">极速预览 · 智能缓存 · 安全访问</div>
     </div>
     <div class="topactions">

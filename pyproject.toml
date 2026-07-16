@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "picshare"
-version = "0.8.2"
+# 版本号唯一真源在 src/picshare/__init__.py:__version__，此处动态读取
+dynamic = ["version"]
 description = "基于 IPv6 的私有照片共享服务器(极速预览 · 智能缓存 · 安全访问)"
 readme = "README.md"
 # 非商业许可，非 SPDX 标准清单内，用 LicenseRef 自定义标识（PEP 639）。
@@ -29,6 +30,9 @@ build = ["pyinstaller>=6.0"]
 
 [project.scripts]
 picshare = "picshare.desktop:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "picshare.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

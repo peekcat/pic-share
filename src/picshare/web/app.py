@@ -7,7 +7,7 @@ from flask import (Flask, send_file, render_template_string, request, abort,
                    url_for, jsonify, session, redirect, g)
 
 from ..config import state
-from ..paths import safe_join
+from ..paths import safe_join, safe_album_join
 from ..preview import generator
 from ..status import update_global_status
 from .. import tokens, selections
@@ -27,7 +27,9 @@ app.secret_key = secrets.token_hex(32)
 @app.after_request
 def add_header(response):
     if 'image' in response.mimetype:
-        response.headers['Cache-Control'] = 'public, max-age=604800'
+        # private 而非 public：明文 HTTP + 链接即凭证的模型下，public 等于明确授权
+        # 中间代理存储客户的照片。private 只让客户自己的浏览器缓存(二次打开照样快)。
+        response.headers['Cache-Control'] = 'private, max-age=604800'
     return response
 
 
@@ -94,7 +96,7 @@ def unlock(token):
 @require_token('redirect')
 def album_view(token):
     album = g.album
-    path = safe_join(state.base_dir, album)
+    path = safe_album_join(state.base_dir, album)
     if not path or not path.exists() or _is_system_path(path):
         abort(404)
 
@@ -106,6 +108,10 @@ def album_view(token):
                 continue
             try:
                 rel = f.relative_to(path).as_posix()
+                # 反向校验一次：解析后逃出相册的（例如指向相册外的符号链接）文件路由
+                # 也会拒绝，这里一并不列出，免得网格里出现点不开的破图。
+                if safe_album_join(state.base_dir, album, rel) is None:
+                    continue
                 is_raw = f.suffix.lower() in state.raw_extensions
                 photos.append({
                     'filename': rel,
@@ -129,7 +135,7 @@ def album_view(token):
 @require_token('deny')
 def get_preview(token, filename):
     album = g.album
-    original_path = safe_join(state.base_dir, album, filename)
+    original_path = safe_album_join(state.base_dir, album, filename)
     if not original_path:
         abort(404)
 
@@ -139,7 +145,7 @@ def get_preview(token, filename):
     if not original_path.exists():
         abort(404)
 
-    preview_path = safe_join(str(Path(state.base_dir) / state.preview_subdir), album, filename)
+    preview_path = safe_album_join(str(Path(state.base_dir) / state.preview_subdir), album, filename)
     if not preview_path:
         abort(404)
 
@@ -159,7 +165,7 @@ def get_preview(token, filename):
 def get_view(token, filename):
     """查看大图(1600px)：按需生成并缓存。生成失败一律 404，前端保留小图占位。"""
     album = g.album
-    original_path = safe_join(state.base_dir, album, filename)
+    original_path = safe_album_join(state.base_dir, album, filename)
     if not original_path:
         abort(404)
     # 🔒 禁止借大图路由窥探系统目录
@@ -168,7 +174,7 @@ def get_view(token, filename):
     if not original_path.exists():
         abort(404)
 
-    view_path = safe_join(str(Path(state.base_dir) / state.view_subdir), album, filename)
+    view_path = safe_album_join(str(Path(state.base_dir) / state.view_subdir), album, filename)
     if not view_path:
         abort(404)
     if not view_path.exists():
@@ -181,7 +187,7 @@ def get_view(token, filename):
 @require_token('deny')
 def get_original(token, filename):
     album = g.album
-    path = safe_join(state.base_dir, album, filename)
+    path = safe_album_join(state.base_dir, album, filename)
     if not path:
         abort(404)
 
@@ -206,7 +212,7 @@ def get_hd(token, filename):
     非 RAW 文件走 get_original 即可，此路由只服务 RAW。
     """
     album = g.album
-    original_path = safe_join(state.base_dir, album, filename)
+    original_path = safe_album_join(state.base_dir, album, filename)
     if not original_path:
         abort(404)
     if _is_system_path(original_path):
@@ -216,7 +222,7 @@ def get_hd(token, filename):
     if not original_path.exists():
         abort(404)
 
-    hd_path = safe_join(str(Path(state.base_dir) / state.hd_subdir), album, filename)
+    hd_path = safe_album_join(str(Path(state.base_dir) / state.hd_subdir), album, filename)
     if not hd_path:
         abort(404)
     if not hd_path.exists():
@@ -238,7 +244,7 @@ def toggle_mark(token):
         return jsonify({'success': False}), 400
 
     # 仅接受确实属于该相册的文件，避免把任意路径写进清单
-    src = safe_join(state.base_dir, album, filename)
+    src = safe_album_join(state.base_dir, album, filename)
     if not src or not src.exists() or _is_system_path(src):
         return jsonify({'success': False})
 

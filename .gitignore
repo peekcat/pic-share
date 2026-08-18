@@ -9,7 +9,6 @@ venv/
 .build-venv/
 .DS_Store
 
-# 运行时生成的缓存 / 标记目录 / 访问 token
-._preview_ipv6_opt/
+# 运行时生成的缓存 / 标记目录（都在照片根目录下，万一根目录指到仓库里也不会误提交）
+._picshare/
 被标记的照片/
-._access_tokens.json

@@ -15,6 +15,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   .wrap { padding:16px 18px 24px; }
   h1 { font-size:19px; margin:0; }
   .subtitle { color:var(--sub); font-size:12px; margin:2px 0 14px; }
+  .ver { color:var(--sub); font-size:12px; font-weight:normal; margin-left:8px; vertical-align:middle; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:12px; }
   .label { font-weight:600; margin-bottom:8px; }
   .row { display:flex; gap:8px; align-items:center; }
@@ -109,7 +110,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
 <div class="wrap">
   <div class="topbar">
     <div>
-      <h1>IPv6 相册服务</h1>
+      <h1>IPv6 相册服务<span class="ver">v__PICSHARE_VERSION__</span></h1>
       <div class="subtitle">极速预览 · 智能缓存 · 安全访问</div>
     </div>
     <div class="topactions">
@@ -143,7 +144,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   <div class="card">
     <div class="flexsplit" style="margin-bottom:10px">
       <span class="label" style="margin:0">🔗 相册</span>
-      <button class="ghost sm" onclick="loadAlbums()">🔄 刷新相册</button>
+      <button class="ghost sm" onclick="loadAlbums(true)">🔄 刷新相册</button>
     </div>
     <div id="albums"></div>
   </div>
@@ -237,8 +238,9 @@ ADMIN_HTML = r'''<!DOCTYPE html>
     box.appendChild(d);
   }
 
-  async function loadAlbums(){
-    const data=await api.get_albums();
+  // force=true 由「🔄 刷新相册」传入：丢弃后端张数缓存重新点数，加了照片能立刻看到
+  async function loadAlbums(force=false){
+    const data=await api.get_albums(force);
     if(!data.base_dir_ok){
       if(data.reason==='missing')
         emptyState('📁','找不到上次的根目录','原来的相册根目录可能被移动或删除了，请重新选择。','重新选择文件夹', false);
@@ -324,7 +326,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
     const bq=document.createElement('button'); bq.className='sm ghost iconbtn'; bq.innerHTML=IC_QR; bq.title='二维码';
     bq.onclick=()=>showQr(l.url, l.passcode); la.appendChild(bq);
     const br=document.createElement('button'); br.className='sm ghost iconbtn danger'; br.innerHTML=IC_TRASH; br.title='撤销';
-    br.onclick=()=>{ if(confirm('撤销后该链接立即失效，确定吗？')) api.revoke_token(l.token).then(loadAlbums); };
+    br.onclick=()=>{ if(confirm('撤销后该链接立即失效，确定吗？')) api.revoke_token(l.token).then(()=>loadAlbums()); };
     la.appendChild(br);
     d.appendChild(la);
     return d;
@@ -364,7 +366,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
 
   function init(){
     api=window.pywebview.api;
-    refreshState().then(loadAlbums); refreshNetwork(); pollLogs(); setInterval(pollLogs,1500);
+    refreshState().then(()=>loadAlbums()); refreshNetwork(); pollLogs(); setInterval(pollLogs,1500);
     // 点空白处关闭顶部浮层（网络 / 帮助）
     document.addEventListener('click', e=>{ if(!e.target.closest('.topactions')){
       document.getElementById('netPop').classList.remove('open');

@@ -19,7 +19,7 @@ import webview
 import qrcode
 
 from ..config import state
-from ..paths import safe_join
+from ..paths import safe_join, safe_album_join
 from ..network import get_ipv6_addresses_v2
 from ..preview import generator
 from .. import settings, tokens, selections
@@ -138,8 +138,15 @@ class Api:
         except Exception:
             return {"expired": False, "days_left": None}
 
-    def get_albums(self):
-        """仪表盘数据：每个相册的张数、已选数、状态徽章及其全部分享链接。"""
+    def get_albums(self, force_refresh=False):
+        """仪表盘数据：每个相册的张数、已选数、状态徽章及其全部分享链接。
+
+        force_refresh=True 时丢弃张数缓存重新点数（供「🔄 刷新相册」按钮使用）——
+        摄影师往相册里加了照片后，正是靠这个按钮看到新张数。其余调用点(初始加载、
+        切目录、建/撤链接后)不传参、继续吃缓存，那些动作本就不改变照片数量。
+        """
+        if force_refresh:
+            self._photo_count_cache.clear()
         if not state.base_dir:
             return {"base_dir_ok": False, "reason": "unset", "albums": []}
         base = Path(state.base_dir)
@@ -205,7 +212,8 @@ class Api:
 
         copied = 0
         for rel in selected:
-            src = safe_join(state.base_dir, album, rel)
+            # 清单里万一存过 ../ 之类的历史脏条目，这里会返回 None 被跳过
+            src = safe_album_join(state.base_dir, album, rel)
             dst = safe_join(str(dest), rel)
             if not src or not dst or not src.exists():
                 continue
@@ -225,7 +233,7 @@ class Api:
                     continue
                 if rel in selected_set:
                     continue
-                src = safe_join(state.base_dir, album, rel)  # 仅清理确属该相册的副本
+                src = safe_album_join(state.base_dir, album, rel)  # 仅清理确属该相册的副本
                 if src and src.exists():
                     try:
                         f.unlink()

@@ -13,7 +13,7 @@ from .config import state
 from .web.app import app
 from .admin.api import Api
 from .admin.templates import ADMIN_HTML
-from . import status, settings
+from . import status, settings, __version__
 
 
 def _serve_app(port):
@@ -31,8 +31,8 @@ def main():
     threading.Thread(target=_serve_app, args=(state.port,), daemon=True).start()
 
     window = webview.create_window(
-        "PicShare · IPv6 相册服务",
-        html=ADMIN_HTML,
+        f"PicShare v{__version__} · IPv6 相册服务",   # 版本进标题栏，随时可见
+        html=ADMIN_HTML.replace("__PICSHARE_VERSION__", __version__),  # 页眉版本占位替换
         js_api=api,
         width=900, height=800, min_size=(620, 560),
     )

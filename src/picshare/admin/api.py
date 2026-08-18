@@ -18,9 +18,10 @@ from pathlib import Path
 import webview
 import qrcode
 
-from ..config import state
+from ..config import state, normalize_port
 from ..paths import safe_join, safe_album_join
 from ..network import get_ipv6_addresses_v2
+from ..server import restart_public_server, ServerStartError
 from ..preview import generator
 from .. import settings, tokens, selections
 
@@ -87,6 +88,31 @@ class Api:
             # 非空即代表对外服务没起来：运行日志面板默认折叠，必须在主界面明示
             "server_error": self._server_error or "",
         }
+
+    def set_port(self, port):
+        """改服务端口并立即在新端口上重启对外服务，成功后持久化。
+
+        token 与端口无关，改端口不会让任何链接失效——只是链接 URL 里的端口号变了，
+        摄影师重新复制发一次即可（_base_url() 实时读 state.port，会自动重新生成）。
+        """
+        try:
+            port = normalize_port(port)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        if port == state.port and not self._server_error:
+            return {"ok": True, "port": port, "unchanged": True}
+
+        try:
+            restart_public_server(port)   # 新端口绑不上则抛错，旧服务继续跑
+        except ServerStartError as e:
+            return {"ok": False, "error": f"{e}请换一个端口。"}
+
+        state.port = port
+        settings.set_value("port", port)
+        # 启动时端口被占用的用户正是靠改端口自救，成功后横幅必须撤掉
+        self._server_error = None
+        self.log(f"🔌 服务端口已改为 {port}，请把链接重新复制发给客户")
+        return {"ok": True, "port": port}
 
     def choose_folder(self):
         if not self._window:

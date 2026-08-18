@@ -26,7 +26,8 @@ class CreatePublicServerTest(unittest.TestCase):
         finally:
             srv.close()
 
-    def test_port_in_use_raises_with_actionable_message(self):
+    def test_port_in_use_names_the_port(self):
+        """只陈述事实：哪个端口被占用。该怎么办由调用点按场景补充。"""
         holder, port = _take_port()
         try:
             with self.assertRaises(server.ServerStartError) as cm:
@@ -34,9 +35,10 @@ class CreatePublicServerTest(unittest.TestCase):
         finally:
             holder.close()
         msg = str(cm.exception)
-        self.assertIn(str(port), msg)       # 说清是哪个端口
+        self.assertIn(str(port), msg)
         self.assertIn("被占用", msg)
-        self.assertIn("重启", msg)          # 说清怎么办
+        # 不应把「重启程序」写死在这里——界面上改端口失败时并不需要重启
+        self.assertNotIn("重启", msg)
 
     def test_message_names_no_operating_system(self):
         """错误文案只陈述事实，不针对特定系统/软件做猜测式提示。
@@ -96,6 +98,78 @@ class StartPublicServerTest(unittest.TestCase):
                 server.start_public_server(port)
         finally:
             holder.close()
+
+
+class RestartPublicServerTest(unittest.TestCase):
+    """换端口重启。核心不变量：新端口绑不上时，旧服务必须原封不动继续跑。"""
+
+    def setUp(self):
+        self._free = []
+
+    def tearDown(self):
+        if server._current is not None:
+            server._current.close()
+            server._current = None
+        for s in self._free:
+            s.close()
+
+    @staticmethod
+    def _free_port():
+        holder, port = _take_port()
+        holder.close()
+        return port
+
+    @staticmethod
+    def _alive(port):
+        """真发一次 HTTP 请求确认服务在响应（落地页无需任何相册配置）。"""
+        import urllib.request
+        try:
+            with urllib.request.urlopen(f"http://[::1]:{port}/", timeout=2) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    def test_moves_service_to_new_port(self):
+        p1, p2 = self._free_port(), self._free_port()
+        server.start_public_server(p1)
+        self.assertTrue(self._alive(p1), "旧端口应先能服务")
+
+        server.restart_public_server(p2)
+        self.assertTrue(self._alive(p2), "新端口应能服务")
+        self.assertFalse(self._alive(p1), "旧端口应已停止服务")
+
+    def test_releases_old_port(self):
+        p1, p2 = self._free_port(), self._free_port()
+        server.start_public_server(p1)
+        server.restart_public_server(p2)
+
+        probe = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._free.append(probe)
+        try:
+            probe.bind(("::", p1))
+        except OSError as e:
+            self.fail(f"旧端口未释放：{e}")
+
+    def test_updates_current(self):
+        p1, p2 = self._free_port(), self._free_port()
+        server.start_public_server(p1)
+        new = server.restart_public_server(p2)
+        self.assertIs(server._current, new)
+
+    def test_bind_failure_keeps_old_server_alive(self):
+        """最重要的一条：换到被占用的端口失败后，用户不能两个端口都连不上。"""
+        p1 = self._free_port()
+        old = server.start_public_server(p1)
+        self.assertTrue(self._alive(p1))
+
+        blocker, busy = _take_port()
+        self._free.append(blocker)
+        with self.assertRaises(server.ServerStartError):
+            server.restart_public_server(busy)
+
+        self.assertIs(server._current, old, "失败后 _current 不该被换掉")
+        self.assertTrue(self._alive(p1), "失败后旧端口必须仍在服务")
 
 
 if __name__ == "__main__":

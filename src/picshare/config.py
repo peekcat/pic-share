@@ -1,6 +1,23 @@
 from . import settings
 
-# ====== 0. 全局变量 & 配置 (不变) ======
+# ====== 0. 全局变量 & 配置 ======
+
+# 端口约束。低于 1024 需要 root 权限，直接排除。
+# 放在 config 而非 server：server 要 import web.app → config，config 再反向
+# import server 就成环了；端口约束本就属于配置。
+PORT_MIN, PORT_MAX = 1024, 65535
+DEFAULT_PORT = 5000
+
+
+def normalize_port(value) -> int:
+    """把用户输入的端口规范成 int。非法抛 ValueError，其 message 可直接展示。"""
+    try:
+        port = int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError("端口必须是数字。")
+    if not (PORT_MIN <= port <= PORT_MAX):
+        raise ValueError(f"端口需在 {PORT_MIN}–{PORT_MAX} 之间。")
+    return port
 
 
 class ServerState:
@@ -30,7 +47,8 @@ class ServerState:
         # 才按需生成的更大尺寸 JPEG——比 view 更清晰，又远小于原始 RAW 文件。
         self.hd_size = (3600, 3600)
         self.hd_quality = 88
-        self.port = 5000
+        # 优先用上次保存的端口；没存过或存进去的值被手改坏都退回默认端口
+        self.port = self._load_port()
 
         # 定义 RAW 扩展名（这些文件禁止下载真原图，改为可按需查看「高清」衍生 JPEG）
         self.raw_extensions = {
@@ -41,6 +59,13 @@ class ServerState:
         self.allowed_extensions = {
                                       '.jpg', '.jpeg', '.png', '.bmp', '.webp', '.gif', '.heic'
                                   } | self.raw_extensions  # 合并集合
+
+    @staticmethod
+    def _load_port() -> int:
+        try:
+            return normalize_port(settings.get("port"))
+        except ValueError:
+            return DEFAULT_PORT
 
 
 state = ServerState()

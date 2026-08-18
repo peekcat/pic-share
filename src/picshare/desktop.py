@@ -27,8 +27,9 @@ def main():
         start_public_server(state.port)
         api.log(f"✅ 对外服务已启动，监听端口 {state.port}")
     except ServerStartError as e:
-        api.set_server_error(str(e))   # 管理页顶部红色横幅
-        api.log(f"❌ {e}")
+        msg = f"{e}对外服务未启动，分享链接暂时无法访问。可在「服务端口」中改用其它端口。"
+        api.set_server_error(msg)      # 管理页顶部红色横幅
+        api.log(f"❌ {msg}")
 
     window = webview.create_window(
         f"PicShare v{__version__} · IPv6 相册服务",   # 版本进标题栏，随时可见

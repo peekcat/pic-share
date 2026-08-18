@@ -147,6 +147,18 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   </div>
 
   <div class="card">
+    <div class="label">🔌 服务端口</div>
+    <div class="row">
+      <input id="portInput" type="text" inputmode="numeric" placeholder="5000">
+      <button onclick="applyPort()">应用</button>
+    </div>
+    <div class="muted" style="margin-top:8px">
+      端口被占用时可改用其它端口。改完请把链接重新复制发给客户（链接里含端口号）；
+      口令、有效期与客户已选的照片都不受影响。
+    </div>
+  </div>
+
+  <div class="card">
     <div class="flexsplit" style="margin-bottom:10px">
       <span class="label" style="margin:0">🔗 相册</span>
       <button class="ghost sm" onclick="loadAlbums(true)">🔄 刷新相册</button>
@@ -194,6 +206,17 @@ ADMIN_HTML = r'''<!DOCTYPE html>
     const b=document.getElementById('srvErr');
     b.textContent='⚠️ '+(s.server_error||'');
     b.classList.toggle('show', !!s.server_error);
+    document.getElementById('portInput').value=s.port||'';
+  }
+
+  async function applyPort(){
+    const v=document.getElementById('portInput').value.trim();
+    if(!confirm('改端口后，之前发出去的链接里的端口号就过时了，需要重新复制发给客户。\n'
+              + '（客户已选的照片和口令不受影响）\n\n确定改为 '+v+' 吗？')) return;
+    const r=await api.set_port(v);
+    if(!r.ok){ alert(r.error); return; }
+    await refreshState();   // 撤掉可能存在的启动失败横幅，并回填实际端口
+    loadAlbums();           // 链接 URL 含端口号，需按新端口重新渲染
   }
   async function chooseFolder(){ const p=await api.choose_folder(); if(p){ document.getElementById('baseDir').value=p; loadAlbums(); } }
 

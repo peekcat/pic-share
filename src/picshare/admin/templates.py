@@ -17,6 +17,10 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   .subtitle { color:var(--sub); font-size:12px; margin:2px 0 14px; }
   .ver { color:var(--sub); font-size:12px; font-weight:normal; margin-left:8px; vertical-align:middle; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:12px; }
+  /* 对外服务启动失败的横幅：运行日志面板默认折叠，这类致命错误必须摆在主界面上 */
+  .banner { display:none; background:rgba(192,57,43,.16); border:1px solid var(--red);
+            border-radius:12px; padding:11px 14px; margin-bottom:12px; font-size:13px; line-height:1.6; }
+  .banner.show { display:block; }
   .label { font-weight:600; margin-bottom:8px; }
   .row { display:flex; gap:8px; align-items:center; }
   input[type=text], select { flex:1; background:var(--card2); border:1px solid var(--line);
@@ -108,6 +112,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
 </head>
 <body>
 <div class="wrap">
+  <div id="srvErr" class="banner"></div>
   <div class="topbar">
     <div>
       <h1>IPv6 相册服务<span class="ver">v__PICSHARE_VERSION__</span></h1>
@@ -182,7 +187,14 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   }
   function flash(el,msg){ const o=el.textContent; el.textContent='✅ '+msg; setTimeout(()=>{el.textContent=o;},900); }
 
-  async function refreshState(){ const s=await api.get_state(); document.getElementById('baseDir').value=s.base_dir||''; }
+  async function refreshState(){
+    const s=await api.get_state();
+    document.getElementById('baseDir').value=s.base_dir||'';
+    // 对外服务没起来时把原因摆在最顶上；绑定只在启动时发生一次，无需轮询
+    const b=document.getElementById('srvErr');
+    b.textContent='⚠️ '+(s.server_error||'');
+    b.classList.toggle('show', !!s.server_error);
+  }
   async function chooseFolder(){ const p=await api.choose_folder(); if(p){ document.getElementById('baseDir').value=p; loadAlbums(); } }
 
   function setChip(n){

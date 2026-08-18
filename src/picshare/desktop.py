@@ -10,16 +10,10 @@ from pathlib import Path
 import webview
 
 from .config import state
-from .web.app import app
 from .admin.api import Api
 from .admin.templates import ADMIN_HTML
+from .server import start_public_server, ServerStartError
 from . import status, settings, __version__
-
-
-def _serve_app(port):
-    """对外 Web 服务（waitress：生产级 WSGI，多线程、Windows 友好）。"""
-    from waitress import serve
-    serve(app, listen=f"[::]:{port}", threads=16)
 
 
 def main():
@@ -27,8 +21,14 @@ def main():
     api = Api()
     status.set_gui_sink(api.log)  # 后端日志（含 RAW 解码报错等）汇入管理窗口运行日志
 
-    # 启动对外 Web 服务（守护线程，随主程序退出）
-    threading.Thread(target=_serve_app, args=(state.port,), daemon=True).start()
+    # 启动对外 Web 服务。绑定在主线程同步完成，失败必须让用户看见——
+    # 此前这里是裸起线程，绑定失败的异常只打到 stderr，打包后 console=False 即无声无息。
+    try:
+        start_public_server(state.port)
+        api.log(f"✅ 对外服务已启动，监听端口 {state.port}")
+    except ServerStartError as e:
+        api.set_server_error(str(e))   # 管理页顶部红色横幅
+        api.log(f"❌ {e}")
 
     window = webview.create_window(
         f"PicShare v{__version__} · IPv6 相册服务",   # 版本进标题栏，随时可见
@@ -39,7 +39,6 @@ def main():
     api.set_window(window)
 
     def _on_start():
-        api.log("✅ 服务已启动，等待连接")
         # 延迟一点再预热，让窗口先渲染完
         if state.base_dir and Path(state.base_dir).exists():
             threading.Timer(2.0, lambda: api._start_prewarm(state.base_dir)).start()

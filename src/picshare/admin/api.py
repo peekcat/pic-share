@@ -54,6 +54,7 @@ class Api:
         self._log_lock = threading.Lock()
         self._window = None
         self._photo_count_cache = {}  # 相册张数缓存（照片极少变动，切目录时清空）
+        self._server_error = None     # 对外服务启动失败的说明，供页面顶部横幅展示
 
     def set_window(self, window):
         self._window = window
@@ -74,11 +75,17 @@ class Api:
         return True
 
     # ====== 根目录 ======
+    def set_server_error(self, msg):
+        """记录对外服务启动失败的原因，由页面顶部横幅展示（启动时调用一次）。"""
+        self._server_error = msg
+
     def get_state(self):
         return {
             "base_dir": state.base_dir,
             "base_dir_exists": bool(state.base_dir) and Path(state.base_dir).exists(),
             "port": state.port,
+            # 非空即代表对外服务没起来：运行日志面板默认折叠，必须在主界面明示
+            "server_error": self._server_error or "",
         }
 
     def choose_folder(self):

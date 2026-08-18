@@ -66,6 +66,49 @@ class RouteAccessTest(unittest.TestCase):
         # albumA 的 token 无法取到 albumB 的文件（相册由 token 固定）
         self.assertEqual(self.c.get(f"/share/{self.tok}/original/b.jpg").status_code, 404)
 
+    def test_cross_album_traversal_blocked(self):
+        """token 绑定的相册边界不能被 ../ 绕过——四个文件路由 × 四种编码全覆盖。
+
+        README 承诺「客户无法在 URL 中指定相册名，也看不到、猜不到别人的相册」，
+        这条测试就是那句承诺的守卫。
+        """
+        payloads = {
+            "明文":     "../albumB/b.jpg",
+            "..%2f":    "..%2falbumB%2fb.jpg",
+            "%2e%2e%2f": "%2e%2e%2falbumB%2fb.jpg",
+            # 双层编码：Werkzeug 解一次后仍是 %2e%2e%2f，用来盯住「不得二次解码」
+            "双层编码":  "%252e%252e%252falbumB%252fb.jpg",
+        }
+        for route in ("preview", "view", "original", "hd"):
+            for name, payload in payloads.items():
+                with self.subTest(route=route, encoding=name):
+                    r = self.c.get(f"/share/{self.tok}/{route}/{payload}")
+                    self.assertNotEqual(r.status_code, 200)
+                    self.assertNotIn(b"\xff\xd8\xff", r.get_data())  # 绝不能吐出 JPEG
+
+    def test_traversal_does_not_pollute_cache(self):
+        """穿越请求不得在别的相册的缓存目录里落文件。"""
+        self.c.get(f"/share/{self.tok}/preview/..%2falbumB%2fb.jpg")
+        self.c.get(f"/share/{self.tok}/view/..%2falbumB%2fb.jpg")
+        for subdir in (state.preview_subdir, state.view_subdir):
+            leaked = Path(state.base_dir) / subdir / "albumB"
+            self.assertFalse(leaked.exists(), f"缓存目录被污染: {leaked}")
+
+    def test_nested_subfolder_photo_accessible(self):
+        """相册内子文件夹里的照片必须仍然可访问——防止收紧路径检查误伤嵌套相册。"""
+        sub = Path(state.base_dir) / "albumA" / "第一天"
+        sub.mkdir()
+        Image.new("RGB", (400, 300), (10, 200, 90)).save(sub / "001.jpg", quality=80)
+
+        rel = quote("第一天/001.jpg")
+        self.assertEqual(self.c.get(f"/share/{self.tok}/preview/{rel}").status_code, 200)
+        self.assertEqual(self.c.get(f"/share/{self.tok}/original/{rel}").status_code, 200)
+        # 相册页应列出它，且选片能落到清单
+        self.assertIn("第一天/001.jpg", self.c.get(f"/share/{self.tok}").get_data(as_text=True))
+        r = self.c.post(f"/share/{self.tok}/mark", json={"filename": "第一天/001.jpg"})
+        self.assertTrue(r.get_json()["is_marked"])
+        self.assertEqual(selections.list_selected("albumA"), ["第一天/001.jpg"])
+
     def test_token_for_system_dir_404(self):
         bad = tokens.create_token(state.marked_subdir)
         self.assertEqual(self.c.get(f"/share/{bad}").status_code, 404)
@@ -104,29 +147,11 @@ class RouteAccessTest(unittest.TestCase):
         self.c.post(f"/share/{self.tok}/mark", json={"filename": "a.jpg"})
         self.assertFalse((Path(state.base_dir) / state.marked_subdir).exists())
 
-    @unittest.expectedFailure
     def test_mark_rejects_file_outside_album(self):
-        """【已知缺陷，待修】客户可用 ../ 把别的相册的文件写进本相册的选片清单。
-
-        根因：paths.safe_join() 只保证结果落在它的第一个参数内，而所有路由都写成
-        safe_join(state.base_dir, album, filename)——夹的是「根目录」而非「相册目录」，
-        于是 filename 里的 ../ 可以横向跨到同根下的其它相册。
-        同一根因还让 preview / view / original 路由能直接读到别的相册的照片。
-        修复后请删除本装饰器（届时 unittest 会以「意外通过」提醒你）。
-        """
+        """客户不能用 ../ 把别的相册的文件写进本相册的选片清单。"""
         r = self.c.post(f"/share/{self.tok}/mark", json={"filename": "../albumB/b.jpg"})
         self.assertFalse(r.get_json()["success"])
         self.assertEqual(selections.list_selected("albumA"), [])
-
-    @unittest.expectedFailure
-    def test_cross_album_traversal_blocked(self):
-        """【已知缺陷，待修】同上：token 绑定的相册边界能被 ../ 绕过。
-
-        README 承诺「客户无法在 URL 中指定相册名，也看不到、猜不到别人的相册」，
-        当前实现不满足该承诺——只要猜中相册文件夹名与文件名即可读取。
-        """
-        r = self.c.get(f"/share/{self.tok}/original/..%2falbumB%2fb.jpg")
-        self.assertEqual(r.status_code, 404)
 
     def test_album_page_injects_selected_list(self):
         """已选清单由服务端一次性注入相册页（取代已删除的 check_mark 轮询接口）。"""

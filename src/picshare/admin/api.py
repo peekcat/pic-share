@@ -19,7 +19,7 @@ import webview
 import qrcode
 
 from ..config import state
-from ..paths import safe_join
+from ..paths import safe_join, safe_album_join
 from ..network import get_ipv6_addresses_v2
 from ..preview import generator
 from .. import settings, tokens, selections
@@ -212,7 +212,8 @@ class Api:
 
         copied = 0
         for rel in selected:
-            src = safe_join(state.base_dir, album, rel)
+            # 清单里万一存过 ../ 之类的历史脏条目，这里会返回 None 被跳过
+            src = safe_album_join(state.base_dir, album, rel)
             dst = safe_join(str(dest), rel)
             if not src or not dst or not src.exists():
                 continue
@@ -232,7 +233,7 @@ class Api:
                     continue
                 if rel in selected_set:
                     continue
-                src = safe_join(state.base_dir, album, rel)  # 仅清理确属该相册的副本
+                src = safe_album_join(state.base_dir, album, rel)  # 仅清理确属该相册的副本
                 if src and src.exists():
                     try:
                         f.unlink()

@@ -238,6 +238,9 @@ ALBUM_TEMPLATE = '''
 
         // ── PhotoSwipe 看图器 ──
         let pswp = null;
+        // 安卓返回键/侧滑返回、iOS 边缘返回：打开看图器时压一条历史记录，让「返回」先关看图器
+        // 而不是离开相册页。PhotoSwipe 5 已移除 v4 的 history 模块，需自行接管。
+        let viewerHistoryPushed = false;
         let hintEl = null, hintTimer = null;
         function showEdgeHint(msg) {
             if (!pswp || !pswp.element) return;
@@ -354,9 +357,22 @@ ALBUM_TEMPLATE = '''
 
             // 翻页时取消在途的高清加载并收起转圈
             pswp.on('change', () => { hdGen++; showHdLoading(false); refreshActions(); });
-            pswp.on('destroy', () => { pswp = null; hintEl = null; hdLoadEl = null; if (filterOn) applyFilter(); });
+            pswp.on('destroy', () => {
+                pswp = null; hintEl = null; hdLoadEl = null;
+                if (filterOn) applyFilter();
+                // ✕/ESC/下滑关闭：弹掉打开时压入的历史记录，否则每看一次图就堆积一条空记录，
+                // 客户要多按一次返回才能离开。返回键关闭已在 popstate 里清了标记，不会重复回退。
+                if (viewerHistoryPushed) { viewerHistoryPushed = false; history.back(); }
+            });
 
             pswp.init();
+
+            // 同 URL 压栈：地址栏不变，只为多一条可回退的记录，让系统返回手势先关看图器。
+            // 放在 init() 之后，避免 init 抛错时留下一条无人回收的历史记录。
+            if (!viewerHistoryPushed) {
+                history.pushState({ pswpOpen: true }, '', location.href);
+                viewerHistoryPushed = true;
+            }
 
             // 底部操作栏（手机拇指易触达）：收藏 + 原图（RAW 与普通图统一显示「原图」，
             // 由 refreshActions() 立即改写，这里的初始文案仅占位）
@@ -372,6 +388,13 @@ ALBUM_TEMPLATE = '''
             origBtn.onclick = toggleOriginalView;
             refreshActions();
         }
+
+        // 安卓返回键/侧滑返回、iOS 边缘返回：看图器开着时先关看图器，不离开相册页。
+        // 先清标记再 close：close() 会触发 destroy，标记若还在就会多回退一格。
+        window.addEventListener('popstate', () => {
+            viewerHistoryPushed = false;
+            if (pswp && pswp.isOpen) pswp.close();
+        });
 
         // 桌面：空格恢复默认大小（复位缩放）
         document.addEventListener('keydown', (e) => {

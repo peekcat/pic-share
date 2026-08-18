@@ -27,7 +27,9 @@ app.secret_key = secrets.token_hex(32)
 @app.after_request
 def add_header(response):
     if 'image' in response.mimetype:
-        response.headers['Cache-Control'] = 'public, max-age=604800'
+        # private 而非 public：明文 HTTP + 链接即凭证的模型下，public 等于明确授权
+        # 中间代理存储客户的照片。private 只让客户自己的浏览器缓存(二次打开照样快)。
+        response.headers['Cache-Control'] = 'private, max-age=604800'
     return response
 
 

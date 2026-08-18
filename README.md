@@ -2,7 +2,7 @@
 
 > A self-hosted, IPv6-native photo **proofing & delivery** tool for photographers. Clients browse and mark their favorites in a modern web album — no cloud upload, no messenger recompression.
 
-![version](https://img.shields.io/badge/version-0.8.2-blue)
+![version](https://img.shields.io/github/v/release/peekcat/pic-share)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
 ![license](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-green)

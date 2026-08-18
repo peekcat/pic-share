@@ -53,7 +53,6 @@ class TokenStoreTest(unittest.TestCase):
 
     def test_passcode_stored_and_required(self):
         t = tokens.create_token("album", passcode="aB3k")
-        self.assertTrue(tokens.requires_passcode(t))
         # 口令明文存储（其安全性来自「不嵌入分享链接」，而非磁盘哈希），便于随时重发
         self.assertEqual(tokens.resolve(t)["passcode"], "aB3k")
 
@@ -71,7 +70,8 @@ class TokenStoreTest(unittest.TestCase):
 
     def test_no_passcode_always_verifies(self):
         t = tokens.create_token("album")
-        self.assertFalse(tokens.requires_passcode(t))
+        # 无口令的 token：passcode 存 None，校验一律放行（Web 端据此判断是否要口令页）
+        self.assertIsNone(tokens.resolve(t)["passcode"])
         self.assertTrue(tokens.verify_passcode(t, "anything"))
 
     def test_list_tokens(self):
@@ -81,6 +81,8 @@ class TokenStoreTest(unittest.TestCase):
 
     def test_corrupt_store_degrades_gracefully(self):
         store = Path(state.base_dir) / state.token_file
+        # 本用例没建过 token，._picshare 目录还不存在（生产代码由 _save() 负责建）
+        store.parent.mkdir(parents=True, exist_ok=True)
         store.write_text("{ not valid json", encoding="utf-8")
         self.assertEqual(tokens.list_tokens(), [])
         self.assertIsNone(tokens.resolve("x"))

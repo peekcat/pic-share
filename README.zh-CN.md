@@ -2,7 +2,7 @@
 
 > 专为摄影师设计的自托管、IPv6 直连**客户选片交付**工具。客户在现代化网页相册中在线浏览、标记心仪照片——不走云端上传，也没有微信传图的压缩与低效。
 
-![version](https://img.shields.io/badge/version-0.8.2-blue)
+![version](https://img.shields.io/github/v/release/peekcat/pic-share)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
 ![license](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-green)

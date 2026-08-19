@@ -119,7 +119,7 @@ picshare            # 或：python -m picshare
 
 ```bash
 ./scripts/build-macos.sh       # → dist/PicShare.app + dist/PicShare-<版本>-macos-<架构>.dmg
-.\scripts\build-windows.ps1    # → dist/PicShare/ + dist/PicShare-Setup-<版本>-x64.exe（需要 Inno Setup 6.3+）
+.\scripts\build-windows.ps1    # → dist/PicShare/ + dist/PicShare-Setup-<版本>-x64.exe（需要 Inno Setup 6.5+）
 ./scripts/build-linux.sh       # → dist/PicShare/
 ```
 

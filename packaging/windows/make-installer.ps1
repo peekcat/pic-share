@@ -38,7 +38,29 @@ if (-not $iscc) {
 if (-not $iscc) { throw "Inno Setup 安装后仍找不到 ISCC.exe" }
 
 Write-Host "使用编译器: $iscc"
-& $iscc "packaging\windows\picshare.iss" "/DMyAppVersion=$Version"
+
+# 简体中文语言包。Inno Setup 6.x 把它归在「非官方翻译」里，不随编译器安装
+# （GitHub runner 的 6.7.1 上确实没有），7.x 起才转正。
+# 优先用编译器自带的那份——版本必然匹配；没有就退回仓库自带的副本。
+$isl = $null
+$builtin = Join-Path (Split-Path $iscc -Parent) "Languages\ChineseSimplified.isl"
+$vendored = Join-Path $PSScriptRoot "ChineseSimplified.isl"
+if (Test-Path $builtin) {
+    $isl = $builtin
+} elseif (Test-Path $vendored) {
+    $isl = $vendored
+}
+
+$isccArgs = @("packaging\windows\picshare.iss", "/DMyAppVersion=$Version")
+if ($isl) {
+    Write-Host "中文语言包: $isl"
+    $isccArgs += "/DChineseIsl=$isl"
+} else {
+    # 语言缺失不值得让整个构建挂掉，降级成英文界面并说清楚
+    Write-Warning "找不到 ChineseSimplified.isl，安装界面将只有英文"
+}
+
+& $iscc $isccArgs
 if ($LASTEXITCODE -ne 0) { throw "ISCC 编译失败 (exit $LASTEXITCODE)" }
 
 Write-Host ""

@@ -1,4 +1,4 @@
-﻿; PicShare Windows 安装包（Inno Setup 6.3+ / 7.x）
+﻿; PicShare Windows 安装包（Inno Setup 6.5+ / 7.x）
 ;
 ; 编译：
 ;     ISCC.exe packaging\windows\picshare.iss /DMyAppVersion=0.9.2
@@ -60,9 +60,13 @@ SolidCompression=yes
 WizardStyle=modern
 
 [Languages]
-; ChineseSimplified.isl 从 Inno Setup 6.3 起随编译器官方分发，
-; 用 compiler: 前缀引用可保证与编译器版本匹配（自带副本反而可能因版本不符编译失败）。
-Name: "chinese"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 简体中文在 Inno Setup 6.x 里是「非官方翻译」，不随编译器安装（runner 上也没有），
+; 所以由 make-installer.ps1 找一份可用的传进来：优先编译器自带（Inno 7 起转正、
+; 版本必然匹配），没有就用仓库自带的 ChineseSimplified.isl。
+; 两者都没有时只出英文界面——语言缺失不该让整个构建挂掉。
+#ifdef ChineseIsl
+Name: "chinese"; MessagesFile: "{#ChineseIsl}"
+#endif
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]

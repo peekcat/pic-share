@@ -119,7 +119,7 @@ To produce the distributable packages yourself — PyInstaller cannot cross-comp
 
 ```bash
 ./scripts/build-macos.sh       # → dist/PicShare.app + dist/PicShare-<ver>-macos-<arch>.dmg
-.\scripts\build-windows.ps1    # → dist/PicShare/ + dist/PicShare-Setup-<ver>-x64.exe (needs Inno Setup 6.3+)
+.\scripts\build-windows.ps1    # → dist/PicShare/ + dist/PicShare-Setup-<ver>-x64.exe (needs Inno Setup 6.5+)
 ./scripts/build-linux.sh       # → dist/PicShare/
 ```
 

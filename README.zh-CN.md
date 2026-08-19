@@ -34,17 +34,30 @@
 
 ### 安装
 
-```bash
-pip install -e .
-```
+到 [Releases 页面](https://github.com/peekcat/pic-share/releases) 下载对应平台的包，**不需要装 Python**。
 
-### 运行
+| 平台 | 下载 | 安装方式 |
+| --- | --- | --- |
+| macOS（Apple 芯片） | `PicShare-<版本>-macos-arm64.dmg` | 打开 DMG，把 **PicShare** 拖到**应用程序** |
+| macOS（Intel） | `PicShare-<版本>-macos-x64.dmg` | 同上 |
+| Windows 10/11（x64） | `PicShare-Setup-<版本>-x64.exe` | 双击按向导装完即可，装在当前用户目录下，**不需要管理员权限** |
+| Linux（x64） | `PicShare-<版本>-linux-x64.tar.gz` | 解压后运行 `./PicShare` |
 
-```bash
-picshare        # 或：python -m picshare
-```
+<details>
+<summary><b>首次打开被系统拦住？正常现象，这样放行</b></summary>
 
-启动后，在桌面管理窗口中：
+PicShare 没有做代码签名（Apple 和 Windows 的证书都是按年付费的），所以两个系统都会提示"来自身份不明的开发者"。这个提示针对的是"没有签名"这件事本身，不是在软件里发现了什么。
+
+- **macOS** —— 先双击一次 PicShare（会被拦下），然后打开**系统设置 → 隐私与安全性**，往下滚动，点**仍要打开**。macOS 13 及更早：**系统偏好设置 → 安全性与隐私 → 通用 → 仍要打开**。也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/PicShare.app`
+- **Windows** —— SmartScreen 提示"Windows 已保护你的电脑"，点**更多信息 → 仍要运行**。
+
+放行一次之后，以后打开就都正常了。
+
+</details>
+
+### 首次使用
+
+启动 PicShare，在桌面管理窗口中：
 
 1. 点击「**选择**」指定相册**根目录**（存放各相册子文件夹的主目录）。
 2. 点击「**🔄 刷新网络**」，确认「公网访问地址」中出现 IPv6 地址。
@@ -91,6 +104,23 @@ src/picshare/
     ├── app.py         # Flask app 与 token 作用域路由
     ├── templates.py   # 相册页 / 落地页 / 口令页模板
     └── static/photoswipe/   # 内置 PhotoSwipe 看图器（离线）
+```
+
+## 从源码构建
+
+需要 Python 3.10+。
+
+```bash
+pip install -e .
+picshare            # 或：python -m picshare
+```
+
+想自己打出分发用的安装包 —— PyInstaller 不能交叉编译，每个平台都要在对应系统上构建：
+
+```bash
+./scripts/build-macos.sh       # → dist/PicShare.app + dist/PicShare-<版本>-macos-<架构>.dmg
+.\scripts\build-windows.ps1    # → dist/PicShare/ + dist/PicShare-Setup-<版本>-x64.exe（需要 Inno Setup 6.3+）
+./scripts/build-linux.sh       # → dist/PicShare/
 ```
 
 ## 安全提示

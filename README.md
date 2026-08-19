@@ -34,17 +34,30 @@ The desktop window uses your OS's native WebView (via [pywebview](https://pywebv
 
 ### Install
 
-```bash
-pip install -e .
-```
+Grab the package for your platform from the [Releases page](https://github.com/peekcat/pic-share/releases) — no Python required.
 
-### Run
+| Platform | Download | How to install |
+| --- | --- | --- |
+| macOS (Apple Silicon) | `PicShare-<ver>-macos-arm64.dmg` | Open the DMG, drag **PicShare** onto **Applications** |
+| macOS (Intel) | `PicShare-<ver>-macos-x64.dmg` | Same as above |
+| Windows 10/11 (x64) | `PicShare-Setup-<ver>-x64.exe` | Double-click, follow the wizard — installs per-user, no admin rights needed |
+| Linux (x64) | `PicShare-<ver>-linux-x64.tar.gz` | Extract, run `./PicShare` |
 
-```bash
-picshare        # or: python -m picshare
-```
+<details>
+<summary><b>Blocked on first launch? That is expected — here is how to allow it</b></summary>
 
-Then, in the desktop window:
+PicShare is not code-signed (Apple and Windows certificates are a paid, per-year expense), so both systems warn about software from an "unidentified developer". The warning is about the missing signature — nothing was found in the app.
+
+- **macOS** — double-click PicShare once (it gets blocked), then open **System Settings → Privacy & Security**, scroll down, click **Open Anyway**. On macOS 13 and earlier: **System Preferences → Security & Privacy → General → Open Anyway**. Terminal alternative: `xattr -dr com.apple.quarantine /Applications/PicShare.app`
+- **Windows** — SmartScreen shows "Windows protected your PC". Click **More info → Run anyway**.
+
+You only need to do this once.
+
+</details>
+
+### First run
+
+Launch PicShare, then in the desktop window:
 
 1. Click **Select** to choose your photo **root directory** (the folder that holds your album subfolders).
 2. Click **🔄 Refresh network** and confirm an IPv6 address appears under "public access address".
@@ -91,6 +104,23 @@ src/picshare/
     ├── app.py         # Flask app & token-scoped routes
     ├── templates.py   # album / landing / passcode page templates
     └── static/photoswipe/   # bundled PhotoSwipe viewer (offline)
+```
+
+## Build from source
+
+Requires Python 3.10+.
+
+```bash
+pip install -e .
+picshare            # or: python -m picshare
+```
+
+To produce the distributable packages yourself — PyInstaller cannot cross-compile, so each one has to be built on its own OS:
+
+```bash
+./scripts/build-macos.sh       # → dist/PicShare.app + dist/PicShare-<ver>-macos-<arch>.dmg
+.\scripts\build-windows.ps1    # → dist/PicShare/ + dist/PicShare-Setup-<ver>-x64.exe (needs Inno Setup 6.3+)
+./scripts/build-linux.sh       # → dist/PicShare/
 ```
 
 ## Security Notes

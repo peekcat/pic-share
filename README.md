@@ -1,6 +1,6 @@
 # PicShare
 
-> A self-hosted, IPv6-native photo **proofing & delivery** tool for photographers. Clients browse and mark their favorites in a modern web album — no cloud upload, no messenger recompression.
+> A self-hosted photo **proofing & delivery** tool for photographers. Clients browse and mark their favorites in a modern web album — no cloud upload, no messenger recompression. Deliver remotely over IPv6, or straight across the room on your own Wi-Fi.
 
 ![version](https://img.shields.io/github/v/release/peekcat/pic-share)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -18,7 +18,7 @@
 - **Professional proofing UI** — an iOS-style album that elevates your brand, with a PhotoSwipe viewer (zoom / pan / gestures / keyboard).
 - **Full RAW support** — auto-generates previews for CR2 / CR3 / NEF / ARW / DNG / ORF / RW2 / PEF / SR2, decoded with bundled libraw (via `rawpy`) — no external tools to install.
 - **One-tap selection** — clients favorite photos in the browser; picks are kept as a per-album manifest (no file copying until you export).
-- **Direct IPv6 access** — generates a public share link automatically, no port-forwarding or NAT setup.
+- **Two ways to reach you** — a **public IPv6** link your client can open from anywhere (no port-forwarding, no NAT setup), plus a **LAN** link for in-person proofing that needs nothing from your ISP. PicShare detects both and labels which is which; you never pick a protocol.
 - **Works everywhere** — phones, tablets, and desktop browsers.
 - **Fast tiered cache** — multi-threaded thumbnail prewarm, plus on-demand large (1600px) and RAW "original" (HD) tiers with lazy loading.
 
@@ -60,7 +60,7 @@ You only need to do this once.
 Launch PicShare, then in the desktop window:
 
 1. Click **Select** to choose your photo **root directory** (the folder that holds your album subfolders).
-2. Click **🔄 Refresh network** and confirm an IPv6 address appears under "public access address".
+2. Click the **🌐** chip and check which addresses are available — 🌐 public (client can be anywhere) and/or 📶 LAN (same Wi-Fi only).
 3. In **🔗 Share management**, pick an album, set an expiry → **Generate & copy link** (no passcode by default; enable one for sensitive albums).
 4. Send the **link** (`http://[...]:5000/share/<token>`) to your client. If you added a passcode, send it **separately** (buttons let you re-copy the link / passcode anytime).
 
@@ -92,7 +92,7 @@ src/picshare/
 ├── config.py          # ServerState config, extensions, cache/data dirs
 ├── settings.py        # user-level settings persistence (remembers the root dir, etc.)
 ├── status.py          # unified logging (logging → console / file / run-log panel)
-├── network.py         # IPv6 address detection (Windows / macOS / Linux)
+├── network.py         # address detection: public IPv6 + LAN IPv4 (Windows / macOS / Linux)
 ├── paths.py           # safe_join path-safety helper
 ├── preview.py         # thumbnail / large / RAW-HD generation (rawpy fallback + cache version stamp)
 ├── tokens.py          # access-token storage & verification (capability URLs)
@@ -128,6 +128,7 @@ To produce the distributable packages yourself — PyInstaller cannot cross-comp
 Access control is token-based (see above), which is far stronger than "guess the album name." A few inherent limits still apply:
 
 - **The link is the credential** — a capability URL is a bearer secret; **anyone with the link can access it**. For sensitive albums, add a **passcode** and/or **expiry**, and avoid sharing links on public channels.
+- **The service now also listens on IPv4** — anyone on the same LAN who has the link can open it. Since the token has always been the credential and the IPv6 side is exposed to the whole internet, this *narrows* rather than widens the exposure — but on an untrusted network (a hotel, a shared studio), prefer a passcode.
 - **Plain HTTP** — TLS is not enabled; an on-path attacker could intercept tokens and photos. Strong encryption needs a reverse proxy / tunnel (e.g. Caddy, Cloudflare Tunnel) — a future direction.
 - **No passcode rate-limiting** — passcode checks aren't rate-limited yet, so a short passcode is theoretically brute-forceable by an attacker who already holds the token; rate-limiting / lockout is a planned hardening.
 

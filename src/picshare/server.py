@@ -9,7 +9,9 @@
 """
 
 import errno
+import gc
 import logging
+import socket
 import threading
 
 from .web.app import app
@@ -25,22 +27,61 @@ class ServerStartError(Exception):
     """对外服务未能启动。message 为可直接展示给用户的说明。"""
 
 
+def _as_start_error(port: int, e: OSError) -> ServerStartError:
+    """把绑定失败翻译成可直接展示的说明。
+
+    只陈述事实。后续建议由调用点补——启动时与界面改端口时该说的话不一样，
+    也不针对任何操作系统或具体软件做猜测式提示。
+    """
+    if e.errno == errno.EADDRINUSE:
+        return ServerStartError(f"端口 {port} 被占用。")
+    return ServerStartError(f"对外服务启动失败：{e}")
+
+
+def _preflight(port: int):
+    """真正建服务之前，先确认 IPv4 / IPv6 两个协议族都能绑上这个端口。
+
+    不能直接把双栈交给 waitress 试：它按顺序绑，前一个成功、后一个失败时，
+    已绑上的那个 socket 会卡在 asyncore 的引用环里迟迟不释放（实测要 gc.collect()
+    才回收）。用户「改端口失败 → 立刻重试同一端口」就会撞上一个自己造出来的占用。
+
+    探测 socket 的选项与 waitress 保持一致（SO_REUSEADDR、IPv6 上 IPV6_V6ONLY），
+    否则探测结果与真实绑定结果会不一致——尤其 Windows 上 SO_REUSEADDR 的语义与
+    类 Unix 不同。
+    """
+    for family, addr in ((socket.AF_INET, ("0.0.0.0", port)),
+                         (socket.AF_INET6, ("::", port))):
+        probe = socket.socket(family, socket.SOCK_STREAM)
+        try:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if family == socket.AF_INET6:
+                probe.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            probe.bind(addr)
+        except OSError as e:
+            raise _as_start_error(port, e) from e
+        finally:
+            probe.close()
+
+
 def create_public_server(port: int):
-    """在 ``[::]:port`` 上创建对外服务（绑定在此完成）。
+    """在 ``0.0.0.0:port`` 与 ``[::]:port`` 上创建对外服务（绑定在此完成）。
+
+    双栈监听：IPv6 用于公网直连交付，IPv4 覆盖同一局域网当面选片的场景。
+    waitress 对 IPv6 socket 显式设了 ``IPV6_V6ONLY=1``，所以只绑 ``[::]`` 不会
+    自动兼容 IPv4，必须两个地址都写上。
 
     绑定失败抛 ``ServerStartError``，其 message 只陈述事实（哪个端口怎么了）。
     该做什么由调用点补充——启动失败与界面改端口失败该说的话不一样。
-    任何情况下都不针对特定操作系统或具体软件做猜测式提示。
     """
     from waitress import create_server
+    _preflight(port)
     try:
-        return create_server(app, listen=f"[::]:{port}", threads=16)
+        return create_server(app, listen=f"0.0.0.0:{port} [::]:{port}", threads=16)
     except OSError as e:
-        if e.errno == errno.EADDRINUSE:
-            # 只陈述事实。后续建议由调用点补——启动时与界面改端口时该说的话不一样，
-            # 也不针对任何操作系统或具体软件做猜测式提示。
-            raise ServerStartError(f"端口 {port} 被占用。") from e
-        raise ServerStartError(f"对外服务启动失败：{e}") from e
+        # 预检与真正绑定之间存在极小的竞态窗口。真撞上了，得替 waitress 收拾那个
+        # 半绑状态下漏出来的 socket，否则这个端口在本进程内会一直显示被占用。
+        gc.collect()
+        raise _as_start_error(port, e) from e
 
 
 def _spawn(server):

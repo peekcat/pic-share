@@ -20,16 +20,26 @@ import qrcode
 
 from ..config import state, normalize_port
 from ..paths import safe_join, safe_album_join
-from ..network import get_ipv6_addresses_v2
+from ..network import get_access_addresses, KIND_PUBLIC, KIND_LAN
 from ..server import restart_public_server, ServerStartError
 from ..preview import generator
 from .. import settings, tokens, selections
 
 _HELP_TEXT = """【使用教程】
 1. 设置根目录：点击「选择」，指定存放各相册子文件夹的主目录。
-2. 刷新地址：确认显示「检测到 IPv6 地址」。
-3. 生成链接：在「相册访问管理」选相册、设有效期（可选加口令），生成并复制。
+2. 查看地址：点右上角「🌐」，确认列出了可用的访问地址。
+3. 生成链接：在「相册」里选相册、设有效期（可选加口令），生成并复制。
 4. 发给客户：把链接发给客户，对方打开即可浏览、选片。
+
+【两种访问地址，适用范围不同】
+- 🌐 公网（IPv6）：客户在任何网络下都能打开，用于远程交付。
+  需要宽带已开通 IPv6（多数地区默认开通，未生效可将光猫改为桥接模式），
+  路由器上也要启用 IPv6。客户一侧同样需要 IPv6，手机蜂窝数据通常已支持。
+- 📶 局域网（IPv4）：只有连着同一个路由器 / 同一个 WiFi 的人能打开，
+  适合当面选片。不需要运营商配合，也不用改路由器。
+
+两种地址都没有时，检查网线/WiFi 是否连着；只有局域网地址时，
+链接发给不在场的客户是打不开的，别发。
 
 【文件夹格式】
 - 根目录：存放所有相册子文件夹的主目录。
@@ -41,11 +51,9 @@ _HELP_TEXT = """【使用教程】
 - 请确保根目录下只存放愿意交付的照片。当前为明文 HTTP，敏感场景建议配合 TLS / 隧道。
 
 【注意事项】
-- 本程序仅支持 IPv6 网络访问，IPv4 环境下无法使用。
-- 需向宽带运营商（ISP）开通 IPv6 服务：多数地区已默认开通，如未生效，请将光猫改为桥接模式。
-- 需在路由器上启用 IPv6，并确认分配到的公网 IPv6 地址可从外部访问。
 - 需在系统防火墙及路由器上放行监听端口（默认 5000），否则客户无法连接。
-- 客户所在网络同样需支持 IPv6，否则无法打开链接；手机蜂窝数据通常已支持，可直接访问。
+- 改端口后，之前发出去的链接里的端口号就过时了，需要重新复制发给客户；
+  口令、有效期与客户已选的照片都不受影响。
 """
 
 
@@ -87,13 +95,15 @@ class Api:
             "port": state.port,
             # 非空即代表对外服务没起来：运行日志面板默认折叠，必须在主界面明示
             "server_error": self._server_error or "",
+            # 首次使用向导是否已走完（持久化在用户级设置里，换根目录不受影响）
+            "onboarded": bool(settings.get("onboarded")),
         }
 
     def set_port(self, port):
         """改服务端口并立即在新端口上重启对外服务，成功后持久化。
 
         token 与端口无关，改端口不会让任何链接失效——只是链接 URL 里的端口号变了，
-        摄影师重新复制发一次即可（_base_url() 实时读 state.port，会自动重新生成）。
+        摄影师重新复制发一次即可（_base_urls() 实时读 state.port，会自动重新生成）。
         """
         try:
             port = normalize_port(port)
@@ -129,18 +139,39 @@ class Api:
         return path
 
     # ====== 网络 ======
-    def get_ipv6(self, force_refresh=False):
-        addrs = get_ipv6_addresses_v2(force_refresh=force_refresh)[:5]
-        if addrs:
-            self.log(f"🌐 检测到 {len(addrs)} 个公网 IPv6 地址")
-        else:
-            self.log("⚠️ 未检测到 IPv6 地址，请检查网络设置")
-        return [{"ip": ip, "url": f"http://[{ip}]:{state.port}"} for ip in addrs]
-
-    def _base_url(self):
-        ips = get_ipv6_addresses_v2()
-        host = f"[{ips[0]}]" if ips else "localhost"
+    @staticmethod
+    def _url_for(addr):
+        host = f"[{addr['ip']}]" if addr["kind"] == KIND_PUBLIC else addr["ip"]
         return f"http://{host}:{state.port}"
+
+    def get_addresses(self, force_refresh=False):
+        """客户可用来访问本机的地址，公网在前，每条带拼好的 URL。
+
+        两种 kind 的可用范围差别极大（公网 = 任何地方；局域网 = 同一个网络），
+        界面必须分开讲，所以这里原样带出 kind，不在后端合并成一个"最佳地址"。
+        """
+        addrs = [dict(a, url=self._url_for(a))
+                 for a in get_access_addresses(force_refresh=force_refresh)[:8]]
+        n_pub = sum(1 for a in addrs if a["kind"] == KIND_PUBLIC)
+        n_lan = len(addrs) - n_pub
+        if n_pub:
+            self.log(f"🌐 检测到 {n_pub} 个公网 IPv6 地址" + (f"、{n_lan} 个局域网地址" if n_lan else ""))
+        elif n_lan:
+            self.log(f"📶 检测到 {n_lan} 个局域网地址；未检测到公网 IPv6，链接只能在同一网络内打开")
+        else:
+            self.log("⚠️ 未检测到任何可用地址，请检查网络连接")
+        return addrs
+
+    def _base_urls(self):
+        """生成分享链接用的地址前缀列表，公网优先。
+
+        一个 token 配多个 URL：token 只绑相册/有效期/口令，与用什么地址访问无关。
+        一个地址都没有时回落到 localhost——只有本机能打开，但至少摄影师自己能验证。
+        """
+        addrs = get_access_addresses()
+        if not addrs:
+            return [{"kind": KIND_LAN, "url": f"http://localhost:{state.port}"}]
+        return [{"kind": a["kind"], "url": self._url_for(a)} for a in addrs]
 
     # ====== 相册 / token ======
     def _count_photos(self, album_dir: Path) -> int:
@@ -187,7 +218,7 @@ class Api:
             return {"base_dir_ok": False, "reason": "missing", "albums": []}
 
         # 链接按相册归集
-        base_url = self._base_url()
+        base_urls = self._base_urls()
         links_by_album = {}
         for tok, meta in tokens.list_tokens():
             st = self._link_status(meta)
@@ -195,7 +226,8 @@ class Api:
                 "token": tok,
                 "expires": (meta.get("expires") or "")[:10],
                 "passcode": meta.get("passcode") or "",
-                "url": f"{base_url}/share/{tok}",
+                "urls": [{"kind": b["kind"], "url": f"{b['url']}/share/{tok}"}
+                         for b in base_urls],
                 "expired": st["expired"],
                 "days_left": st["days_left"],
             })
@@ -310,9 +342,9 @@ class Api:
             return {"ok": False, "error": "请先选择相册。"}
         passcode = (passcode or "").strip() or None
         tok = tokens.create_token(album, expires_days=int(days), passcode=passcode, label=album)
-        url = f"{self._base_url()}/share/{tok}"
+        urls = [{"kind": b["kind"], "url": f"{b['url']}/share/{tok}"} for b in self._base_urls()]
         self.log(f"🔗 已生成链接：{album}" + (f"（口令 {passcode}）" if passcode else ""))
-        return {"ok": True, "token": tok, "url": url, "passcode": passcode or ""}
+        return {"ok": True, "token": tok, "urls": urls, "passcode": passcode or ""}
 
     def revoke_token(self, token):
         ok = tokens.revoke_token(token)
@@ -321,6 +353,11 @@ class Api:
         return ok
 
     # ====== 其它 ======
+    def finish_onboarding(self):
+        """记下首次引导已走完。持久化在用户级设置里，换根目录/换端口都不影响。"""
+        settings.set_value("onboarded", True)
+        return True
+
     def help_text(self):
         return _HELP_TEXT
 

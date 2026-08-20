@@ -60,7 +60,7 @@ You only need to do this once.
 Launch PicShare, then in the desktop window:
 
 1. Click **Select** to choose your photo **root directory** (the folder that holds your album subfolders).
-2. Click the **🌐** chip and check which addresses are available — 🌐 public (client can be anywhere) and/or 📶 LAN (same Wi-Fi only).
+2. Click the **网络** (Network) chip and check which addresses are available — 🌐 public (client can be anywhere) and/or 📶 LAN (same Wi-Fi only).
 3. In **🔗 Share management**, pick an album, set an expiry → **Generate & copy link** (no passcode by default; enable one for sensitive albums).
 4. Send the **link** (`http://[...]:5000/share/<token>`) to your client. If you added a passcode, send it **separately** (buttons let you re-copy the link / passcode anytime).
 

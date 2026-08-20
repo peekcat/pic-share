@@ -88,6 +88,9 @@ ADMIN_HTML = r'''<!DOCTYPE html>
           padding:6px 13px; font-size:13px; }
   .chip.ok { color:#7fe0a8; border-color:#2f5a44; }
   .chip.warn { color:#e06c6c; border-color:#5e3a3a; }
+  .chip.alert { color:#e6a35f; border-color:#5e4a30; }
+  /* setChip 跑之前的初始态：半透明。探测挂掉时按钮不会伪装成「一切正常」 */
+  .chip.dim { opacity:.55; }
   .toppop { display:none; position:absolute; right:0; top:calc(100% + 6px); width:360px; max-width:84vw;
             background:var(--card); border:1px solid var(--line); border-radius:12px;
             box-shadow:0 12px 32px rgba(0,0,0,.55); padding:11px 13px; z-index:30; }
@@ -149,7 +152,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
       <div class="subtitle">极速预览 · 智能缓存 · 安全访问</div>
     </div>
     <div class="topactions">
-      <button id="netChip" class="chip" onclick="toggleNet(event)">🌐 检测中…</button>
+      <button id="netChip" class="chip dim" onclick="toggleNet(event)">🌐 网络</button>
       <button class="ghost sm" onclick="toggleHelp(event)">❓ 帮助</button>
       <div id="netPop" class="toppop">
         <div class="nphead">
@@ -277,12 +280,18 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   }
   async function chooseFolder(){ const p=await api.choose_folder(); if(p){ document.getElementById('baseDir').value=p; loadAlbums(); } }
 
+  // 文案固定为「网络」：常态下顶栏只需要一个干净的入口，地址明细都在弹层里。
+  // 但它同时是状态灯——只有局域网地址时，链接发给不在现场的客户是打不开的——
+  // 所以两种异常都追加 ⚠️，不让颜色单独承载警告（扫一眼或色觉差异时颜色靠不住）。
   function setChip(addrs){
     const c=document.getElementById('netChip');
     const pub=addrs.some(a=>a.kind==='public'), lan=addrs.some(a=>a.kind==='lan');
-    if(pub){ c.className='chip ok'; c.textContent=lan?'🌐 公网 + 局域网':'🌐 公网'; }
-    else if(lan){ c.className='chip'; c.textContent='📶 仅局域网'; }
-    else { c.className='chip warn'; c.textContent='🌐 无可用地址'; }
+    if(pub){ c.className='chip ok'; c.textContent='🌐 网络';
+             c.title='公网地址可用，客户在任何网络下都能打开'; }
+    else if(lan){ c.className='chip alert'; c.textContent='🌐 网络 ⚠️';
+             c.title='只有局域网地址，链接发给不在现场的客户打不开'; }
+    else { c.className='chip warn'; c.textContent='🌐 网络 ⚠️';
+             c.title='未检测到任何可用地址，请检查网络连接'; }
   }
   function toggleNet(e){ if(e) e.stopPropagation();
     document.getElementById('helpPop').classList.remove('open');
@@ -551,7 +560,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
         box.innerHTML='';
         if(!addrs.length){
           box.innerHTML='<div class="ipstatus warn">⚠️ 没有探测到可用地址。'
-                      + '先确认网线或 WiFi 已连上，再点右上角 🌐 里的「刷新」重试。</div>';
+                      + '先确认网线或 WiFi 已连上，再点右上角「网络」里的「刷新」重试。</div>';
           return;
         }
         ['public','lan'].forEach(k=>{

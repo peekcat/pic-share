@@ -29,6 +29,7 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   button { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:7px 12px;
            font-size:13px; cursor:pointer; white-space:nowrap; }
   button:hover { filter:brightness(1.08); }
+  button:disabled { opacity:.4; cursor:not-allowed; filter:none; }
   button.ghost { background:var(--card2); color:var(--text); border:1px solid var(--line); }
   button.green { background:var(--green); } button.red { background:var(--red); }
   button.sm { padding:4px 8px; font-size:12px; }
@@ -40,7 +41,13 @@ ADMIN_HTML = r'''<!DOCTYPE html>
              font-family:Consolas,Menlo,monospace; padding:5px 8px; border-radius:6px;
              white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ips .ip:hover { background:var(--card2); }
+  /* 地址按种类分组：公网与局域网的可达范围差别极大，必须各自带一句说明 */
+  .kind { margin-top:10px; }
+  .kind:first-child { margin-top:0; }
+  .kind .kh { font-size:12px; font-weight:600; }
+  .kind .kd { font-size:11px; color:var(--sub); margin:1px 0 4px; line-height:1.5; }
   .flexsplit { display:flex; justify-content:space-between; align-items:center; }
+  .divider { border-top:1px solid var(--line); margin:11px -13px 0; padding:10px 13px 0; }
 
   button.ghost.danger { color:#e06c6c; }
 
@@ -81,6 +88,9 @@ ADMIN_HTML = r'''<!DOCTYPE html>
           padding:6px 13px; font-size:13px; }
   .chip.ok { color:#7fe0a8; border-color:#2f5a44; }
   .chip.warn { color:#e06c6c; border-color:#5e3a3a; }
+  .chip.alert { color:#e6a35f; border-color:#5e4a30; }
+  /* setChip 跑之前的初始态：半透明。探测挂掉时按钮不会伪装成「一切正常」 */
+  .chip.dim { opacity:.55; }
   .toppop { display:none; position:absolute; right:0; top:calc(100% + 6px); width:360px; max-width:84vw;
             background:var(--card); border:1px solid var(--line); border-radius:12px;
             box-shadow:0 12px 32px rgba(0,0,0,.55); padding:11px 13px; z-index:30; }
@@ -102,36 +112,73 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   #log > div { overflow-wrap:anywhere; }
   #log .warn { color:#E6A23C; } #log .ok { color:#67C26B; }
 
+  /* 首次使用向导：独立遮罩，走完三步才进主界面 */
+  #wiz { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); align-items:center;
+         justify-content:center; z-index:60; padding:20px; }
+  #wiz.open { display:flex; }
+  #wiz .box { background:var(--card); border:1px solid var(--line); border-radius:16px;
+              width:520px; max-width:100%; max-height:100%; overflow-y:auto; padding:22px 24px 18px;
+              box-shadow:0 18px 48px rgba(0,0,0,.6); }
+  #wiz .dots { display:flex; gap:6px; justify-content:center; margin-bottom:16px; }
+  #wiz .dots i { width:7px; height:7px; border-radius:99px; background:var(--line); }
+  #wiz .dots i.on { background:var(--accent); }
+  #wiz h2 { font-size:18px; margin:0 0 6px; }
+  #wiz .wdesc { color:var(--sub); font-size:13px; line-height:1.75; margin-bottom:14px; white-space:pre-wrap; }
+  #wiz .wbody { min-height:120px; }
+  #wiz .wfoot { display:flex; justify-content:space-between; align-items:center; margin-top:18px; }
+  #wiz .picked { background:var(--card2); border:1px solid var(--line); border-radius:8px;
+                 padding:8px 10px; font-size:12px; word-break:break-all; margin-top:9px; color:var(--sub); }
+  #wiz .picked.ok { color:var(--text); }
+
   /* 二维码弹层 */
   #qr { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); align-items:center; justify-content:center; z-index:50; }
   #qr .box { background:#fff; border-radius:14px; padding:18px; text-align:center; max-width:300px; }
   #qr img { width:240px; height:240px; image-rendering:pixelated; }
   #qr .u { color:#333; font-size:11px; word-break:break-all; margin:10px 0 4px; font-family:Consolas,monospace; }
   #qr .h { color:#666; font-size:12px; margin-bottom:8px; }
+  #qrSwitch { display:flex; gap:6px; justify-content:center; margin-bottom:10px; }
+  #qrSwitch:empty { display:none; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div id="srvErr" class="banner"></div>
+  <div id="srvErr" class="banner">
+    <span id="srvErrMsg"></span>
+    <button class="ghost sm" style="margin-left:6px" onclick="openPortSetting(event)">去改端口</button>
+  </div>
   <div class="topbar">
     <div>
-      <h1>IPv6 相册服务<span class="ver">v__PICSHARE_VERSION__</span></h1>
+      <h1>私有相册服务<span class="ver">v__PICSHARE_VERSION__</span></h1>
       <div class="subtitle">极速预览 · 智能缓存 · 安全访问</div>
     </div>
     <div class="topactions">
-      <button id="netChip" class="chip" onclick="toggleNet(event)">🌐 检测中…</button>
+      <button id="netChip" class="chip dim" onclick="toggleNet(event)">🌐 网络</button>
       <button class="ghost sm" onclick="toggleHelp(event)">❓ 帮助</button>
       <div id="netPop" class="toppop">
         <div class="nphead">
-          <span class="label" style="margin:0">公网访问地址</span>
+          <span class="label" style="margin:0">网络与访问</span>
           <button class="ghost sm" onclick="refreshNetwork()">🔄 刷新</button>
         </div>
         <div class="ips" id="ips"></div>
+        <!-- 端口和访问地址本就是一件事：链接里含端口号。放在一起，也不占首页位置 -->
+        <div class="divider">
+          <div class="label" style="font-size:13px">🔌 服务端口</div>
+          <div class="row">
+            <input id="portInput" type="text" inputmode="numeric" placeholder="5000">
+            <button class="sm" onclick="applyPort()">应用</button>
+          </div>
+          <div class="muted" style="margin-top:7px; line-height:1.6">
+            端口被占用时可改用其它端口。改完请把链接重新复制发给客户。
+          </div>
+        </div>
       </div>
       <div id="helpPop" class="toppop">
         <div class="nphead">
           <span class="label" style="margin:0">使用帮助</span>
-          <button class="ghost sm" onclick="toggleHelp()">关闭</button>
+          <span>
+            <button class="ghost sm" onclick="replayWizard()">重看引导</button>
+            <button class="ghost sm" onclick="toggleHelp()">关闭</button>
+          </span>
         </div>
         <div id="helpText"></div>
       </div>
@@ -143,18 +190,6 @@ ADMIN_HTML = r'''<!DOCTYPE html>
     <div class="row">
       <input id="baseDir" type="text" readonly placeholder="尚未选择">
       <button onclick="chooseFolder()">选择</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="label">🔌 服务端口</div>
-    <div class="row">
-      <input id="portInput" type="text" inputmode="numeric" placeholder="5000">
-      <button onclick="applyPort()">应用</button>
-    </div>
-    <div class="muted" style="margin-top:8px">
-      端口被占用时可改用其它端口。改完请把链接重新复制发给客户（链接里含端口号）；
-      口令、有效期与客户已选的照片都不受影响。
     </div>
   </div>
 
@@ -179,12 +214,26 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   <div id="log"></div>
 </div>
 
+<div id="wiz">
+  <div class="box">
+    <div class="dots"><i id="d1"></i><i id="d2"></i><i id="d3"></i></div>
+    <h2 id="wizTitle"></h2>
+    <div class="wdesc" id="wizDesc"></div>
+    <div class="wbody" id="wizBody"></div>
+    <div class="wfoot">
+      <button class="ghost sm" onclick="wizSkip()">跳过</button>
+      <button id="wizNext" onclick="wizNext()">下一步</button>
+    </div>
+  </div>
+</div>
+
 <div id="qr" onclick="closeQr(event)">
   <div class="box">
     <div class="h">扫码打开 / 转发给客户</div>
     <img id="qrImg" alt="qr">
     <div class="u" id="qrUrl"></div>
-    <button class="ghost sm" onclick="closeQr()">关闭</button>
+    <div id="qrSwitch"></div>
+    <button class="ghost sm" id="qrClose" onclick="closeQr()">关闭</button>
   </div>
 </div>
 
@@ -204,9 +253,20 @@ ADMIN_HTML = r'''<!DOCTYPE html>
     document.getElementById('baseDir').value=s.base_dir||'';
     // 对外服务没起来时把原因摆在最顶上；绑定只在启动时发生一次，无需轮询
     const b=document.getElementById('srvErr');
-    b.textContent='⚠️ '+(s.server_error||'');
+    document.getElementById('srvErrMsg').textContent='⚠️ '+(s.server_error||'');
     b.classList.toggle('show', !!s.server_error);
     document.getElementById('portInput').value=s.port||'';
+    return s;
+  }
+
+  // 端口被占用时改端口是唯一的自救手段，横幅必须能直接把人带到那个输入框。
+  // 必须 stopPropagation：文档上挂着「点 .topactions 之外就关闭浮层」的监听，
+  // 这个按钮在横幅里、不在 .topactions 内，不拦住冒泡就会开了立刻被关掉。
+  function openPortSetting(e){
+    if(e) e.stopPropagation();
+    document.getElementById('helpPop').classList.remove('open');
+    document.getElementById('netPop').classList.add('open');
+    const i=document.getElementById('portInput'); i.focus(); i.select();
   }
 
   async function applyPort(){
@@ -220,10 +280,18 @@ ADMIN_HTML = r'''<!DOCTYPE html>
   }
   async function chooseFolder(){ const p=await api.choose_folder(); if(p){ document.getElementById('baseDir').value=p; loadAlbums(); } }
 
-  function setChip(n){
+  // 文案固定为「网络」：常态下顶栏只需要一个干净的入口，地址明细都在弹层里。
+  // 但它同时是状态灯——只有局域网地址时，链接发给不在现场的客户是打不开的——
+  // 所以两种异常都追加 ⚠️，不让颜色单独承载警告（扫一眼或色觉差异时颜色靠不住）。
+  function setChip(addrs){
     const c=document.getElementById('netChip');
-    if(n>0){ c.className='chip ok'; c.textContent='🌐 IPv6 · '+n; }
-    else { c.className='chip warn'; c.textContent='🌐 无 IPv6'; }
+    const pub=addrs.some(a=>a.kind==='public'), lan=addrs.some(a=>a.kind==='lan');
+    if(pub){ c.className='chip ok'; c.textContent='🌐 网络';
+             c.title='公网地址可用，客户在任何网络下都能打开'; }
+    else if(lan){ c.className='chip alert'; c.textContent='🌐 网络 ⚠️';
+             c.title='只有局域网地址，链接发给不在现场的客户打不开'; }
+    else { c.className='chip warn'; c.textContent='🌐 网络 ⚠️';
+             c.title='未检测到任何可用地址，请检查网络连接'; }
   }
   function toggleNet(e){ if(e) e.stopPropagation();
     document.getElementById('helpPop').classList.remove('open');
@@ -235,24 +303,44 @@ ADMIN_HTML = r'''<!DOCTYPE html>
     document.getElementById('netPop').classList.remove('open');
     document.getElementById('helpPop').classList.toggle('open'); }
 
+  // 两种地址的可达范围差别极大，界面上一律成对出现：标题 + 一句人话
+  const KIND = {
+    public: { icon:'🌐', name:'公网', desc:'客户在任何网络下都能打开' },
+    lan:    { icon:'📶', name:'局域网', desc:'只有连同一个 WiFi / 路由器的人能打开，适合当面选片' }
+  };
+  let lastAddrs=[];
+
   async function refreshNetwork(){
     document.getElementById('ips').innerHTML='<div class="ipstatus">检测中…</div>';
-    renderIps(await api.get_ipv6(true));
+    renderAddrs(await api.get_addresses(true));
   }
   function ipRow(o){
-    const b=document.createElement('button'); b.className='ip'; b.textContent=o.url; b.title=o.url;
+    const b=document.createElement('button'); b.className='ip'; b.textContent=o.url; b.title='点击复制 '+o.url;
     b.onclick=()=>{ copyText(o.url); flash(b,'已复制'); }; return b;
   }
-  function renderIps(ips){
-    setChip(ips.length);
+  function renderAddrs(addrs){
+    lastAddrs=addrs;
+    setChip(addrs);
     const box=document.getElementById('ips'); box.innerHTML='';
-    if(!ips.length){
+    if(!addrs.length){
       const w=document.createElement('div'); w.className='ipstatus warn';
-      w.textContent='⚠️ 未检测到公网 IPv6'; box.appendChild(w); return;
+      w.textContent='⚠️ 未检测到任何可用地址，请检查网络连接'; box.appendChild(w); return;
     }
-    const st=document.createElement('div'); st.className='ipstatus';
-    st.textContent='检测到 '+ips.length+' 个 · 点击复制'; box.appendChild(st);
-    ips.forEach(o=>box.appendChild(ipRow(o)));
+    ['public','lan'].forEach(k=>{
+      const group=addrs.filter(a=>a.kind===k);
+      if(!group.length) return;
+      const g=document.createElement('div'); g.className='kind';
+      const h=document.createElement('div'); h.className='kh';
+      h.textContent=KIND[k].icon+' '+KIND[k].name; g.appendChild(h);
+      const d=document.createElement('div'); d.className='kd'; d.textContent=KIND[k].desc; g.appendChild(d);
+      group.forEach(o=>g.appendChild(ipRow(o)));
+      box.appendChild(g);
+    });
+    if(!addrs.some(a=>a.kind==='public')){
+      const w=document.createElement('div'); w.className='ipstatus warn'; w.style.marginTop='8px';
+      w.textContent='⚠️ 没有公网 IPv6，链接发给不在现场的客户打不开';
+      box.appendChild(w);
+    }
   }
 
   function badgeText(a){
@@ -324,8 +412,8 @@ ADMIN_HTML = r'''<!DOCTYPE html>
     form.querySelector('button').onclick=async ()=>{
       const r=await api.create_token(a.name, sel.value, cb.checked?pw.value:'');
       if(!r.ok){ alert(r.error||'生成失败'); return; }
-      copyText(r.url);
-      showQr(r.url, r.passcode);
+      copyText(r.urls[0].url);          // urls 已按公网优先排好
+      showQr(r.urls, r.passcode);
       loadAlbums();
     };
     bShare.onclick=()=>{ form.style.display = form.style.display==='flex' ? 'none' : 'flex'; };
@@ -356,10 +444,18 @@ ADMIN_HTML = r'''<!DOCTYPE html>
     d.appendChild(sub);
 
     const la=document.createElement('div'); la.className='la';
-    const bc=document.createElement('button'); bc.className='sm grow'; bc.textContent='复制链接';
-    bc.onclick=()=>{ copyText(l.url); flash(bc,'已复制'); }; la.appendChild(bc);
+    // 只有一种地址时保持原样一个「复制链接」；两种都有时才分开，免得常见情况平白多个按钮
+    const kinds=[...new Set(l.urls.map(u=>u.kind))];
+    kinds.forEach(k=>{
+      const u=l.urls.find(x=>x.kind===k);
+      const b=document.createElement('button'); b.className='sm grow';
+      b.textContent = kinds.length>1 ? ('复制'+KIND[k].name) : '复制链接';
+      b.title = KIND[k].desc+'\n'+u.url;
+      b.onclick=()=>{ copyText(u.url); flash(b,'已复制'); };
+      la.appendChild(b);
+    });
     const bq=document.createElement('button'); bq.className='sm ghost iconbtn'; bq.innerHTML=IC_QR; bq.title='二维码';
-    bq.onclick=()=>showQr(l.url, l.passcode); la.appendChild(bq);
+    bq.onclick=()=>showQr(l.urls, l.passcode); la.appendChild(bq);
     const br=document.createElement('button'); br.className='sm ghost iconbtn danger'; br.innerHTML=IC_TRASH; br.title='撤销';
     br.onclick=()=>{ if(confirm('撤销后该链接立即失效，确定吗？')) api.revoke_token(l.token).then(()=>loadAlbums()); };
     la.appendChild(br);
@@ -367,15 +463,28 @@ ADMIN_HTML = r'''<!DOCTYPE html>
     return d;
   }
 
-  async function showQr(url, passcode){
-    const uri=await api.make_qr(url);
+  // urls 为 [{kind,url}]，默认展示第一个（公网优先）；两种都有时给个切换
+  async function showQr(urls, passcode, idx){
+    idx = idx || 0;
+    const cur = urls[idx] || urls[0];
+    const uri = await api.make_qr(cur.url);
     document.getElementById('qrImg').src=uri;
-    document.getElementById('qrUrl').textContent=url+(passcode?'  （口令 '+passcode+'）':'');
+    document.getElementById('qrUrl').textContent=cur.url+(passcode?'  （口令 '+passcode+'）':'');
+    const sw=document.getElementById('qrSwitch'); sw.innerHTML='';
+    if(urls.length>1){
+      urls.forEach((u,i)=>{
+        const b=document.createElement('button'); b.className='sm'+(i===idx?'':' ghost');
+        b.textContent=KIND[u.kind].icon+' '+KIND[u.kind].name; b.title=KIND[u.kind].desc;
+        b.onclick=()=>showQr(urls, passcode, i);
+        sw.appendChild(b);
+      });
+    }
     document.getElementById('qr').style.display='flex';
   }
   function closeQr(e){
-    // 仅在点击遮罩背景或「关闭」按钮时关闭；点框内的图/文字不关闭
-    if(e && e.target.id!=='qr' && e.target.tagName!=='BUTTON') return;
+    // 仅在点击遮罩背景或「关闭」按钮时关闭。这里必须认 id 而不是 tagName——
+    // 框里还有切换地址的按钮，按 tagName 判断会把它们也当成关闭。
+    if(e && e.target.id!=='qr' && e.target.id!=='qrClose') return;
     document.getElementById('qr').style.display='none';
   }
 
@@ -399,9 +508,99 @@ ADMIN_HTML = r'''<!DOCTYPE html>
     try{ const logs=await api.get_logs(); if(g===logGen) renderLogs(logs); }catch(e){}
   }
 
+  // ====== 首次使用向导 ======
+  // 只做「探测 + 说明」，不让用户选协议——摄影师不知道该选哪个，程序自己能测出来。
+  let wizStep=0, wizDir='';
+
+  function wizOpen(){ wizStep=0; document.getElementById('wiz').classList.add('open'); wizRender(); }
+  function wizClose(){ document.getElementById('wiz').classList.remove('open'); }
+  async function wizSkip(){ await api.finish_onboarding(); wizClose(); }
+  async function replayWizard(){ document.getElementById('helpPop').classList.remove('open'); wizOpen(); }
+
+  async function wizNext(){
+    if(wizStep<2){ wizStep++; wizRender(); return; }
+    await api.finish_onboarding();
+    wizClose();
+    refreshState(); loadAlbums();
+  }
+
+  function wizRender(){
+    for(let i=1;i<=3;i++) document.getElementById('d'+i).className = (i===wizStep+1?'on':'');
+    const title=document.getElementById('wizTitle'), desc=document.getElementById('wizDesc');
+    const body=document.getElementById('wizBody'), next=document.getElementById('wizNext');
+    body.innerHTML=''; next.textContent = wizStep===2 ? '开始使用' : '下一步';
+
+    if(wizStep===0){
+      title.textContent='欢迎使用 PicShare';
+      desc.textContent='把照片放在自己电脑上，生成一条专属链接发给客户，'
+                     + '客户在浏览器里浏览、标记想要的照片。照片不上传任何云端。\n\n'
+                     + '第一步：选一个「照片根目录」——存放各个相册子文件夹的主目录。';
+      const b=document.createElement('button'); b.textContent='选择文件夹';
+      const picked=document.createElement('div'); picked.className='picked';
+      picked.textContent = wizDir || '尚未选择';
+      if(wizDir) picked.classList.add('ok');
+      b.onclick=async ()=>{
+        const pth=await api.choose_folder();
+        if(pth){ wizDir=pth; picked.textContent=pth; picked.classList.add('ok'); next.disabled=false; }
+      };
+      body.appendChild(b); body.appendChild(picked);
+      next.disabled=!wizDir;
+      return;
+    }
+
+    next.disabled=false;
+    if(wizStep===1){
+      title.textContent='看看你的网络能做什么';
+      desc.textContent='PicShare 会自动探测客户能用哪些地址访问你的电脑，你不用选。';
+      const box=document.createElement('div'); box.className='ips'; box.id='wizIps';
+      box.innerHTML='<div class="ipstatus">检测中…</div>';
+      body.appendChild(box);
+      api.get_addresses(true).then(addrs=>{
+        renderAddrs(addrs);                       // 顺带把顶栏 chip 和弹层一起刷新
+        box.innerHTML='';
+        if(!addrs.length){
+          box.innerHTML='<div class="ipstatus warn">⚠️ 没有探测到可用地址。'
+                      + '先确认网线或 WiFi 已连上，再点右上角「网络」里的「刷新」重试。</div>';
+          return;
+        }
+        ['public','lan'].forEach(k=>{
+          const g=addrs.filter(a=>a.kind===k);
+          if(!g.length) return;
+          const d=document.createElement('div'); d.className='kind';
+          d.innerHTML='<div class="kh">'+KIND[k].icon+' '+KIND[k].name+' · 可用</div>'
+                     +'<div class="kd">'+KIND[k].desc+'</div>';
+          box.appendChild(d);
+        });
+        if(!addrs.some(a=>a.kind==='public')){
+          const w=document.createElement('div'); w.className='ipstatus warn'; w.style.marginTop='8px';
+          w.textContent='没有公网 IPv6，说明你的宽带或路由器还没开通 IPv6。'
+                      + '现在只能当面选片；想远程发给客户，需要先开通 IPv6。';
+          box.appendChild(w);
+        }
+      });
+      return;
+    }
+
+    title.textContent='接下来这样用';
+    desc.textContent='';
+    const ol=document.createElement('div'); ol.className='wdesc'; ol.style.marginBottom='0';
+    ol.textContent='1. 在刚才选的根目录下，为每个相册建一个子文件夹（例如「2025春季婚礼」），把照片放进去。\n'
+                 + '2. 回到主界面点「🔄 刷新相册」，相册就会列出来。\n'
+                 + '3. 在相册上点「分享」，设好有效期（需要的话加个访问口令），生成并复制链接。\n'
+                 + '4. 把链接发给客户。加了口令的话，口令要另外发，别和链接放在一起。\n\n'
+                 + '客户选完之后，点相册上的「收藏夹」就能把选中的原图导出到本地。';
+    ol.style.whiteSpace='pre-wrap';
+    body.appendChild(ol);
+  }
+
   function init(){
     api=window.pywebview.api;
-    refreshState().then(()=>loadAlbums()); refreshNetwork(); pollLogs(); setInterval(pollLogs,1500);
+    refreshState().then(s=>{
+      loadAlbums();
+      wizDir = s.base_dir || '';
+      if(!s.onboarded) wizOpen();     // 没走完引导就先弹，走完/跳过后才进主界面
+    });
+    refreshNetwork(); pollLogs(); setInterval(pollLogs,1500);
     // 点空白处关闭顶部浮层（网络 / 帮助）
     document.addEventListener('click', e=>{ if(!e.target.closest('.topactions')){
       document.getElementById('netPop').classList.remove('open');

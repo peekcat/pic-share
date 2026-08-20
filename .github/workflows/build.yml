@@ -2,7 +2,7 @@ name: build
 
 # 推 tag（v 开头）或在 Actions 页面手动触发时，
 # 同时构建 macOS arm64 / macOS x64 / Windows x64 / Linux x64 产物。
-# 推 tag 时还会自动创建 GitHub Release 并附上四个平台的压缩包。
+# 推 tag 时还会自动创建 GitHub Release 并附上四个平台的安装包/压缩包。
 on:
   push:
     tags: ["v*"]
@@ -41,15 +41,19 @@ jobs:
         include:
           - os: macos-14          # Apple Silicon 运行器 → arm64
             name: macos-arm64
+            arch: arm64
             artifact: PicShare-macos-arm64
           - os: macos-15-intel    # Intel 运行器 → x86_64（macos-13 已于 2025-12 退役）
             name: macos-x64
+            arch: x64
             artifact: PicShare-macos-x64
           - os: windows-latest    # x86_64 运行器
             name: windows-x64
+            arch: x64
             artifact: PicShare-windows-x64
           - os: ubuntu-22.04      # x86_64；用较旧版本以兼容更多发行版的 glibc
             name: linux-x64
+            arch: x64
             artifact: PicShare-linux-x64
 
     steps:
@@ -70,29 +74,39 @@ jobs:
           pip install -e .
           pip install "pyinstaller>=6.0"
 
+      # 版本号唯一真源在 src/picshare/__init__.py，产物文件名统一从这里取
+      - name: Read version
+        id: ver
+        shell: bash
+        run: echo "version=$(python -c 'import picshare; print(picshare.__version__)')" >> "$GITHUB_OUTPUT"
+
       - name: Build
         run: pyinstaller picshare.spec --noconfirm --clean
 
-      # 各平台分别打包成单个压缩文件，作为 artifact / Release 附件
+      # macOS：ad-hoc 签名 + 拖拽安装的 DMG
       - name: Package (macOS)
         if: runner.os == 'macOS'
-        run: ditto -c -k --keepParent "dist/PicShare.app" "${{ matrix.artifact }}.zip"
+        run: bash packaging/macos/make-dmg.sh "${{ steps.ver.outputs.version }}" "${{ matrix.arch }}"
 
+      # Windows：Inno Setup 安装包（开始菜单快捷方式 + 卸载程序，装到 %LocalAppData%，不需要管理员权限）
+      - name: Package (Windows)
+        shell: pwsh
+        if: runner.os == 'Windows'
+        run: .\packaging\windows\make-installer.ps1 -Version "${{ steps.ver.outputs.version }}"
+
+      # Linux 暂不做安装器，仍是解压即用的 tar.gz
       - name: Package (Linux)
         if: runner.os == 'Linux'
-        run: tar -czf "${{ matrix.artifact }}.tar.gz" -C dist PicShare
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        run: Compress-Archive -Path dist/PicShare -DestinationPath "${{ matrix.artifact }}.zip"
+        run: tar -czf "dist/PicShare-${{ steps.ver.outputs.version }}-linux-x64.tar.gz" -C dist PicShare
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: |
-            ${{ matrix.artifact }}.zip
-            ${{ matrix.artifact }}.tar.gz
+            dist/PicShare-*.dmg
+            dist/PicShare-*.exe
+            dist/PicShare-*.tar.gz
           if-no-files-found: error
 
   release:

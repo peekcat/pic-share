@@ -1,7 +1,8 @@
 """桌面入口：pywebview 宿主窗口 + 对外 Web 服务。
 
 - 管理界面：pywebview 加载本地 HTML，经 js_api 进程内调用 Python（无管理 HTTP 端点）。
-- 对外服务：waitress 在 ``[::]:port`` 提供客户端 ``/share`` 访问，与原版一致。
+- 对外服务：waitress 双栈监听 ``0.0.0.0:port`` 与 ``[::]:port``，
+  IPv6 供公网远程交付，IPv4 覆盖同一局域网当面选片。
 """
 
 import threading
@@ -27,12 +28,12 @@ def main():
         start_public_server(state.port)
         api.log(f"✅ 对外服务已启动，监听端口 {state.port}")
     except ServerStartError as e:
-        msg = f"{e}对外服务未启动，分享链接暂时无法访问。可在「服务端口」中改用其它端口。"
+        msg = f"{e}对外服务未启动，分享链接暂时无法访问。换个端口即可。"
         api.set_server_error(msg)      # 管理页顶部红色横幅
         api.log(f"❌ {msg}")
 
     window = webview.create_window(
-        f"PicShare v{__version__} · IPv6 相册服务",   # 版本进标题栏，随时可见
+        f"PicShare v{__version__} · 私有相册服务",   # 版本进标题栏，随时可见
         html=ADMIN_HTML.replace("__PICSHARE_VERSION__", __version__),  # 页眉版本占位替换
         js_api=api,
         width=900, height=800, min_size=(620, 560),

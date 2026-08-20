@@ -1,6 +1,6 @@
 # PicShare
 
-> 专为摄影师设计的自托管、IPv6 直连**客户选片交付**工具。客户在现代化网页相册中在线浏览、标记心仪照片——不走云端上传，也没有微信传图的压缩与低效。
+> 专为摄影师设计的自托管**客户选片交付**工具。客户在现代化网页相册中在线浏览、标记心仪照片——不走云端上传，也没有微信传图的压缩与低效。远程交付走 IPv6 直连，当面选片走局域网。
 
 ![version](https://img.shields.io/github/v/release/peekcat/pic-share)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -18,7 +18,7 @@
 - **专业选片体验** —— 仿 iOS 风格的现代化相册，提升品牌形象；配 PhotoSwipe 看图器（缩放 / 平移 / 手势 / 键盘）。
 - **RAW 格式全支持** —— 自动生成 CR2 / CR3 / NEF / ARW / DNG / ORF / RW2 / PEF / SR2 预览，内置 libraw（经 `rawpy`）解码，**无需安装任何外部程序**。
 - **一键选片** —— 客户在网页里收藏照片，选择以「每相册清单」形式保存（导出前不复制任何文件）。
-- **IPv6 直连访问** —— 自动生成公网分享链接，无需端口转发或 NAT 配置。
+- **两种访问方式** —— **公网 IPv6** 链接让客户在任何地方都能打开（无需端口转发或 NAT 配置）；**局域网**链接用于当面选片，不需要运营商配合。程序自动探测并标注各自的适用范围，不用你选协议。
 - **全设备兼容** —— 完美适配手机、平板、电脑浏览器。
 - **高性能分级缓存** —— 多线程预热缩略图，另有按需生成的大图（1600px）与 RAW「原图」（高清）档，支持懒加载。
 
@@ -34,20 +34,33 @@
 
 ### 安装
 
-```bash
-pip install -e .
-```
+到 [Releases 页面](https://github.com/peekcat/pic-share/releases) 下载对应平台的包，**不需要装 Python**。
 
-### 运行
+| 平台 | 下载 | 安装方式 |
+| --- | --- | --- |
+| macOS（Apple 芯片） | `PicShare-<版本>-macos-arm64.dmg` | 打开 DMG，把 **PicShare** 拖到**应用程序** |
+| macOS（Intel） | `PicShare-<版本>-macos-x64.dmg` | 同上 |
+| Windows 10/11（x64） | `PicShare-Setup-<版本>-x64.exe` | 双击按向导装完即可，装在当前用户目录下，**不需要管理员权限** |
+| Linux（x64） | `PicShare-<版本>-linux-x64.tar.gz` | 解压后运行 `./PicShare` |
 
-```bash
-picshare        # 或：python -m picshare
-```
+<details>
+<summary><b>首次打开被系统拦住？正常现象，这样放行</b></summary>
 
-启动后，在桌面管理窗口中：
+PicShare 没有做代码签名（Apple 和 Windows 的证书都是按年付费的），所以两个系统都会提示"来自身份不明的开发者"。这个提示针对的是"没有签名"这件事本身，不是在软件里发现了什么。
+
+- **macOS** —— 先双击一次 PicShare（会被拦下），然后打开**系统设置 → 隐私与安全性**，往下滚动，点**仍要打开**。macOS 13 及更早：**系统偏好设置 → 安全性与隐私 → 通用 → 仍要打开**。也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/PicShare.app`
+- **Windows** —— SmartScreen 提示"Windows 已保护你的电脑"，点**更多信息 → 仍要运行**。
+
+放行一次之后，以后打开就都正常了。
+
+</details>
+
+### 首次使用
+
+启动 PicShare，在桌面管理窗口中：
 
 1. 点击「**选择**」指定相册**根目录**（存放各相册子文件夹的主目录）。
-2. 点击「**🔄 刷新网络**」，确认「公网访问地址」中出现 IPv6 地址。
+2. 点右上角「**网络**」，看看有哪些可用地址——🌐 公网（客户在任何地方都能开）和 / 或 📶 局域网（仅同一 WiFi）。
 3. 在「**🔗 相册访问管理**」选中相册、设有效期 →「**生成并复制链接**」（默认无口令；敏感相册可勾选启用访问口令）。
 4. 把**链接**（`http://[...]:5000/share/<token>`）发给客户即可浏览；若加了口令，则把口令**另行**发给客户（可用「复制链接 / 复制口令」按钮随时重发）。
 
@@ -79,7 +92,7 @@ src/picshare/
 ├── config.py          # ServerState 配置、扩展名、缓存/数据目录
 ├── settings.py        # 用户级配置持久化（记住根目录等）
 ├── status.py          # 统一日志（logging → 控制台 / 文件 / 运行日志面板）
-├── network.py         # IPv6 地址检测（Windows / macOS / Linux）
+├── network.py         # 地址探测：公网 IPv6 + 局域网 IPv4（Windows / macOS / Linux）
 ├── paths.py           # safe_join 路径安全工具
 ├── preview.py         # 缩略图 / 大图 / RAW 高清生成（rawpy 兜底 + 缓存版本戳）
 ├── tokens.py          # 访问 token 存储与校验（能力 URL）
@@ -93,11 +106,29 @@ src/picshare/
     └── static/photoswipe/   # 内置 PhotoSwipe 看图器（离线）
 ```
 
+## 从源码构建
+
+需要 Python 3.10+。
+
+```bash
+pip install -e .
+picshare            # 或：python -m picshare
+```
+
+想自己打出分发用的安装包 —— PyInstaller 不能交叉编译，每个平台都要在对应系统上构建：
+
+```bash
+./scripts/build-macos.sh       # → dist/PicShare.app + dist/PicShare-<版本>-macos-<架构>.dmg
+.\scripts\build-windows.ps1    # → dist/PicShare/ + dist/PicShare-Setup-<版本>-x64.exe（需要 Inno Setup 6.5+）
+./scripts/build-linux.sh       # → dist/PicShare/
+```
+
 ## 安全提示
 
 访问控制基于 token（详见上节），相比"猜相册名"已显著加固。但仍需注意以下固有限制：
 
 - **链接即凭证** —— 能力 URL 本质是 bearer secret，**任何拿到链接的人都能访问**。对敏感相册请加设**口令**或**有效期**，并避免在公开渠道分享链接。
+- **服务同时监听 IPv4** —— 同一局域网内拿到链接的人也能打开。凭据一直是 token，而 IPv6 那侧本来就暴露在整个公网，所以这属于**收窄**而非放大暴露面；但在不可信网络里（酒店、共享工作室）建议加上访问口令。
 - **明文 HTTP** —— 当前未启用 TLS，链路上的中间人可截获 token 与照片。强加密需配合反向代理 / 隧道（如 Caddy、Cloudflare Tunnel）部署，属后续方向。
 - **口令未限流** —— 当前未对口令校验做速率限制，短口令在攻击者已持有 token 时理论上可被联网爆破；如需更强口令保护，建议后续加入限流 / 锁定。
 

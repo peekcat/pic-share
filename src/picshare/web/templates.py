@@ -89,6 +89,18 @@ ALBUM_TEMPLATE = '''
         z-index:99999; white-space:nowrap;
     }
     .pf-hint.show { opacity:1; }
+    /* 指向底部操作栏的一次性提示（边界提示不用这套）：
+       - 换成强调蓝：原本的半透明黑气泡压在黑色留白上等于隐形，一次性引导不能靠运气；
+       - 下移到贴着操作栏（实测两者之间留 20px，够放下三角）；
+       - 三角横向位置由 JS 按「收藏」按钮实测（--ax），否则会指到两个按钮中间的空隙。 */
+    .pf-hint.point {
+        bottom:calc(78px + env(safe-area-inset-bottom));
+        background:var(--accent); font-weight:600;
+    }
+    .pf-hint.point::after {
+        content:''; position:absolute; left:var(--ax, 50%); bottom:-6px; transform:translateX(-50%);
+        border:6px solid transparent; border-top-color:var(--accent); border-bottom:0;
+    }
     /* 生成高清时：保留当前大图，居中转圈 + 文字（覆盖层透明，不遮挡底图） */
     .pf-hdload {
         position:absolute; inset:0; z-index:99998; pointer-events:none;
@@ -102,12 +114,38 @@ ALBUM_TEMPLATE = '''
     }
     .pf-hdload .tx { color:#fff; font-size:13px; background:rgba(0,0,0,.55); padding:5px 14px; border-radius:14px; }
     @keyframes pf-spin { to { transform:rotate(360deg); } }
+
+    /* 首次使用引导：一屏卡片，复用落地页/口令页那张 .card 的外观 */
+    #guide { display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,.75);
+             align-items:center; justify-content:center; padding:20px; }
+    #guide.open { display:flex; }
+    #guide .card { padding:24px 22px 20px; text-align:left; position:relative;
+                   max-height:calc(100vh - 40px); overflow-y:auto; }
+    #guide h2 { font-size:19px; margin:0 0 4px; }
+    /* .card button 是满宽蓝按钮（给「开始选片」用的），✕ 要单独摘出来 */
+    #guide .gx { position:absolute; top:8px; right:10px; width:auto; padding:6px 10px;
+                 background:none; border:none; color:rgba(255,255,255,.5); font-size:19px;
+                 border-radius:0; cursor:pointer; }
+    #guide .gi { display:flex; gap:12px; margin:16px 0; }
+    #guide .gi .em { font-size:22px; line-height:1.3; }
+    #guide .gi b { display:block; font-size:15px; font-weight:600; margin-bottom:3px; }
+    #guide .gi .tx { display:block; color:#aaa; font-size:13px; line-height:1.5; }
+
+    /* 重看引导：圆圈只做 20px——顶栏总共才 44px 高，再大就抢「返回」的视线；
+       外层按钮靠 padding 把触摸区撑到手机能稳稳点中的尺寸 */
+    .nav-help { background:none; border:none; padding:11px 8px; margin-left:2px;
+                cursor:pointer; display:flex; align-items:center; }
+    .nav-help span { display:flex; align-items:center; justify-content:center;
+                     width:20px; height:20px; border-radius:50%; font-size:12px; line-height:1;
+                     color:rgba(255,255,255,.5); border:1px solid rgba(255,255,255,.28); }
+    .nav-help:active span { color:#fff; border-color:#fff; }
     </style>
 </head>
 <body>
     <div class="navbar">
         <div class="nav-side nav-left">
             <a href="/" class="nav-btn">''' + ICONS['back'] + '''&nbsp;返回</a>
+            <button class="nav-help" type="button" onclick="openGuide()" aria-label="使用说明"><span>?</span></button>
         </div>
         <div class="nav-title">{{ album_name }}</div>
         <div class="nav-side sel-summary">
@@ -124,6 +162,22 @@ ALBUM_TEMPLATE = '''
         {% endfor %}
     </div>
 
+    <!-- 首次使用引导：默认隐藏，由脚本决定弹不弹。脚本挂了就当没有这一层，
+         不能让客户对着一块拆不掉的遮罩 -->
+    <div id="guide" onclick="closeGuide(event)">
+        <div class="card" onclick="event.stopPropagation()">
+            <button class="gx" type="button" onclick="closeGuide()" aria-label="关闭">✕</button>
+            <h2>📷 选片怎么用</h2>
+            <div class="gi"><span class="em">👆</span>
+                <div><b>点照片放大看</b><span class="tx">左右滑动翻看下一张</span></div></div>
+            <div class="gi"><span class="em">⭐</span>
+                <div><b>喜欢就点「收藏」</b><span class="tx">大图下方的星标，选择自动保存，不用提交</span></div></div>
+            <div class="gi"><span class="em">✅</span>
+                <div><b>顶部「已选 N」可以点</b><span class="tx">只看已选的照片，方便最后核对</span></div></div>
+            <button type="button" onclick="closeGuide()">开始选片</button>
+        </div>
+    </div>
+
     <!-- 看图器由 PhotoSwipe 动态创建 -->
 
     <script type="module">
@@ -135,6 +189,16 @@ ALBUM_TEMPLATE = '''
         // 收藏图标（复用星标）
         const FAV_OFF = `''' + ICONS['star_empty'] + '''`;
         const FAV_ON  = `''' + ICONS['star_fill'] + '''`;
+
+        // ── 新手引导的「看过了」标记 ──
+        // 按浏览器记而不是按 token 记：同一个客户收到第二个相册链接时不该再弹一次。
+        // 键名带版本号，以后文案有实质改动改成 v2 就能让老客户重看。
+        const K_GUIDE = 'ps_guide_v1', K_FAVHINT = 'ps_favhint_v1';
+        const memFlags = {};   // 无痕模式下 localStorage 可能直接抛错，至少保证本次会话不重弹
+        function seen(k){ if (memFlags[k]) return true;
+                          try { return localStorage.getItem(k) === '1'; } catch(e) { return false; } }
+        function markSeen(k){ memFlags[k] = true;
+                              try { localStorage.setItem(k, '1'); } catch(e) {} }
 
         // 已选状态由服务端一次性注入，翻图无需再逐张查询
         let markedState = {};
@@ -155,6 +219,22 @@ ALBUM_TEMPLATE = '''
             renderSelLabel();
         }
         updateSelCount();
+
+        // ── 首次使用引导 ──
+        // ✕ / 点遮罩 / 「开始选片」/ ESC 四种关法都算看过，都写标记：客户手一滑关掉了，
+        // 下次刷新再糊他一脸比不弹更烦人；真想再看有顶栏的 ?。
+        function openGuide(){
+            document.getElementById('guide').classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
+        function closeGuide(e){
+            if (e) e.stopPropagation();
+            document.getElementById('guide').classList.remove('open');
+            document.body.style.overflow = '';
+            markSeen(K_GUIDE);
+        }
+        // 空相册不弹：对着一屏空网格讲「点照片放大看」只会让客户更懵
+        if (photos.length && !seen(K_GUIDE)) openGuide();
 
         // 「已选 N」筛选：点一下只看已收藏，再点回到全部
         function applyFilter() {
@@ -242,7 +322,10 @@ ALBUM_TEMPLATE = '''
         // 而不是离开相册页。PhotoSwipe 5 已移除 v4 的 history 模块，需自行接管。
         let viewerHistoryPushed = false;
         let hintEl = null, hintTimer = null;
-        function showEdgeHint(msg) {
+        // opts.ms 停留时长（默认 1200），opts.point 加一个指向底部操作栏的 ▼。
+        // 边界提示（「前面没有更多了」）两个都不需要，保持原调用不变。
+        function showEdgeHint(msg, opts) {
+            opts = opts || {};
             if (!pswp || !pswp.element) return;
             if (!hintEl || hintEl.parentNode !== pswp.element) {
                 hintEl = document.createElement('div');
@@ -250,9 +333,11 @@ ALBUM_TEMPLATE = '''
                 pswp.element.appendChild(hintEl);
             }
             hintEl.textContent = msg;
+            hintEl.classList.toggle('point', !!opts.point);
             hintEl.classList.add('show');
             clearTimeout(hintTimer);
-            hintTimer = setTimeout(() => { if (hintEl) hintEl.classList.remove('show'); }, 1200);
+            hintTimer = setTimeout(() => { if (hintEl) hintEl.classList.remove('show'); },
+                                   opts.ms || 1200);
         }
 
         // 生成高清时的加载覆盖层（转圈 + 文字），保留底图不清空
@@ -387,6 +472,19 @@ ALBUM_TEMPLATE = '''
             favBtn.onclick = () => { const d = curData(); if (d) toggleFav(d._file).then(refreshActions); };
             origBtn.onclick = toggleOriginalView;
             refreshActions();
+
+            // 「收藏」是选片的唯一动作，可它在网格页上压根不存在——只有这一刻能真正指给客户看。
+            if (!seen(K_FAVHINT)) {
+                showEdgeHint('喜欢就点「收藏」，自动保存', { ms: 3200, point: true });
+                // hintEl 有值才说明真的挂上去了（showEdgeHint 会在没有 pswp.element 时空转），
+                // 没显示成就别烧掉标记，否则这条提示从此再也不出现
+                if (hintEl) {
+                    markSeen(K_FAVHINT);
+                    // 气泡居中、按钮不居中，三角得按实测位置摆，否则指向两个按钮之间的空隙
+                    const b = favBtn.getBoundingClientRect(), h = hintEl.getBoundingClientRect();
+                    hintEl.style.setProperty('--ax', (b.left + b.width / 2 - h.left) + 'px');
+                }
+            }
         }
 
         // 安卓返回键/侧滑返回、iOS 边缘返回：看图器开着时先关看图器，不离开相册页。
@@ -398,6 +496,10 @@ ALBUM_TEMPLATE = '''
 
         // 桌面：空格恢复默认大小（复位缩放）
         document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && document.getElementById('guide').classList.contains('open')) {
+                closeGuide();
+                return;
+            }
             if (!pswp || !pswp.isOpen) return;
             if (e.code === 'Space') {
                 e.preventDefault();
@@ -414,6 +516,8 @@ ALBUM_TEMPLATE = '''
         window.openViewer = openViewer;
         window.toggleFilter = toggleFilter;
         window.clearSelection = clearSelection;
+        window.openGuide = openGuide;
+        window.closeGuide = closeGuide;
 
         function clearSelection() {
             if (selCount === 0) return;

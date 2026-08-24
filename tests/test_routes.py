@@ -161,6 +161,14 @@ class RouteAccessTest(unittest.TestCase):
         body2 = self.c.get(f"/share/{self.tok}").get_data(as_text=True)
         self.assertIn('["a.jpg"]', body2)
 
+    def test_album_page_ships_client_guide(self):
+        """新手引导整体落进相册页——防止以后误删。JS 行为测不到，只守住存在性。"""
+        body = self.c.get(f"/share/{self.tok}").get_data(as_text=True)
+        self.assertIn('id="guide"', body)       # 卡片本体
+        self.assertIn("ps_guide_v1", body)      # 「看过了」标记的键名
+        self.assertIn("ps_favhint_v1", body)    # 看图器内指向「收藏」的一次性提示
+        self.assertIn('class="nav-help"', body)  # 顶栏重看入口
+
     def test_clear_selection(self):
         self.c.post(f"/share/{self.tok}/mark", json={"filename": "a.jpg"})
         r = self.c.post(f"/share/{self.tok}/clear_selection")

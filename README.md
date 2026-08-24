@@ -67,7 +67,7 @@ Launch PicShare, then in the desktop window:
 ## How it works
 
 - **Photographer** — run the app, choose your photo root, then generate a **dedicated share link** (with optional expiry and passcode) for an album and send it to the matching client.
-- **Client** — open the link to browse, mark favorites, and view full-resolution photos (RAW is served as an on-demand high-res JPEG). No album name to type.
+- **Client** — open the link to browse, mark favorites, and view full-resolution photos (RAW is served as an on-demand high-res JPEG). No album name to type. A skippable one-screen guide appears on first open, and the **?** in the top bar brings it back.
 - **Collect** — click **Export** in the desktop app to copy the selected originals into `被标记的照片/<album>/`, then it opens in your file manager.
 
 ## Access Control
